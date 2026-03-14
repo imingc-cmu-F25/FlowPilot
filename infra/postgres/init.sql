@@ -1,0 +1,2 @@
+-- FlowPilot initial DB bootstrap placeholder.
+-- Team members can add schema migrations or seed data later.

@@ -1,0 +1,27 @@
+# OS / Editor
+.DS_Store
+.idea/
+.vscode/
+
+# Environment
+.env
+*.env.local
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+
+# Backend
+backend/.venv/
+backend/.pytest_cache/
+backend/.ruff_cache/
+backend/.mypy_cache/
+backend/__pycache__/
+backend/**/*.pyc
+
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Docker
+*.pid
