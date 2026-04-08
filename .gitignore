@@ -25,3 +25,6 @@ __pycache__/
 
 # Docker
 *.pid
+
+.history/
+.conda/
