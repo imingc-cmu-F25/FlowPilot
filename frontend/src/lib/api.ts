@@ -1,0 +1,118 @@
+const envBase = (
+  import.meta.env.VITE_API_BASE_URL as string | undefined
+)?.replace(/\/$/, "");
+
+export const API_BASE = import.meta.env.PROD
+  ? envBase ?? ""
+  : envBase || "http://127.0.0.1:8000/api";
+
+export type EmailAddress = { address: string; alias: string };
+
+export type UserPublic = { name: string; emails: EmailAddress[] };
+
+export type AuthResponse = {
+  ok: boolean;
+  message: string;
+  user: UserPublic | null;
+  token: string | null;
+};
+
+function extractDetail(data: unknown): string | undefined {
+  if (data && typeof data === "object" && "detail" in data) {
+    const d = (data as { detail: unknown }).detail;
+    if (typeof d === "string") return d;
+    if (Array.isArray(d) && d[0] && typeof d[0] === "object" && "msg" in d[0]) {
+      return String((d[0] as { msg: unknown }).msg);
+    }
+  }
+  return undefined;
+}
+
+async function parseBody(res: Response): Promise<unknown> {
+  const text = await res.text();
+  if (!text) return null;
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    return text;
+  }
+}
+
+async function apiFetch(input: string, init?: RequestInit): Promise<Response> {
+  try {
+    return await fetch(input, init);
+  } catch (e) {
+    if (e instanceof TypeError) {
+      const hint = import.meta.env.DEV
+        ? " Start the API on port 8000 (uvicorn) or set VITE_API_BASE_URL."
+        : " Set VITE_API_BASE_URL for this build and ensure the API is reachable.";
+      throw new Error(`Could not reach the API.${hint}`);
+    }
+    throw e;
+  }
+}
+
+export async function fetchAllUsers(): Promise<UserPublic[]> {
+  const res = await apiFetch(`${API_BASE}/users/users`);
+  const data = await parseBody(res);
+  if (!res.ok) {
+    throw new Error(extractDetail(data) ?? res.statusText);
+  }
+  return data as UserPublic[];
+}
+
+export async function appendUserEmail(
+  name: string,
+  address: string,
+  alias: string,
+): Promise<UserPublic> {
+  const res = await apiFetch(`${API_BASE}/users/users/emails`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, address, alias }),
+  });
+  const data = await parseBody(res);
+  if (!res.ok) {
+    throw new Error(extractDetail(data) ?? res.statusText);
+  }
+  return data as UserPublic;
+}
+
+export async function registerUser(body: {
+  name: string;
+  password: string;
+  email?: string | null;
+}): Promise<AuthResponse> {
+  const res = await apiFetch(`${API_BASE}/users/register`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const data = await parseBody(res);
+  if (!res.ok) {
+    throw new Error(extractDetail(data) ?? res.statusText);
+  }
+  return data as AuthResponse;
+}
+
+export async function loginUser(
+  name: string,
+  password: string,
+): Promise<{ auth: AuthResponse; token?: string }> {
+  const res = await apiFetch(`${API_BASE}/users/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, password }),
+  });
+  const data = await parseBody(res);
+  if (!res.ok) {
+    throw new Error(extractDetail(data) ?? res.statusText);
+  }
+  if (Array.isArray(data) && data.length >= 1) {
+    return {
+      auth: data[0] as AuthResponse,
+      token: typeof data[1] === "string" ? data[1] : undefined,
+    };
+  }
+  return { auth: data as AuthResponse };
+}

@@ -1,0 +1,267 @@
+openapi: 3.0.3
+info:
+  title: FlowPilot User API
+  description: |
+    HTTP API for user registration, login, listing users, and updating email addresses.
+    These routes are served from `app.user.router` and mounted at `/api/users` (see `app.main` and `app.api.router`).
+  version: 0.1.0
+
+servers:
+  - url: http://localhost:8000
+    description: Local development
+
+tags:
+  - name: auth
+    description: Registration, credentials, and user email management
+
+paths:
+  /api/users/register:
+    post:
+      tags: [auth]
+      summary: Register a new user
+      operationId: registerUser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterRequest"
+            examples:
+              withEmail:
+                summary: With optional email
+                value:
+                  name: bob1
+                  password: "1234"
+                  email: bob@gmail.com
+              minimal:
+                summary: Name and password only
+                value:
+                  name: alice
+                  password: secret
+      responses:
+        "200":
+          description: Registration succeeded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "409":
+          description: Username already registered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HTTPValidationError"
+        "422":
+          description: Request body validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HTTPValidationError"
+
+  /api/users/login:
+    post:
+      tags: [auth]
+      summary: Log in with username and password
+      operationId: loginUser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserCredentials"
+            example:
+              name: bob1
+              password: "1234"
+      responses:
+        "200":
+          description: |
+            Login succeeded. The running app declares `tuple[AuthResponse, str]` as the response model;
+            verify the actual JSON shape in `/openapi.json` or `/docs` for your FastAPI version.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "400":
+          description: Login failed or unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HTTPValidationError"
+        "422":
+          description: Request body validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HTTPValidationError"
+
+  /api/users/users:
+    get:
+      tags: [auth]
+      summary: List all users
+      operationId: getAllUsers
+      responses:
+        "200":
+          description: List of public user records
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/UserPublic"
+        "401":
+          description: Authentication error (application-specific)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HTTPValidationError"
+        "404":
+          description: Not found (application-specific)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HTTPValidationError"
+
+  /api/users/users/emails:
+    put:
+      tags: [auth]
+      summary: Append an email address for a user
+      operationId: updateUserEmail
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserEmailUpdate"
+            example:
+              name: bob1
+              address: work@example.com
+              alias: work
+      responses:
+        "200":
+          description: Updated user summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserPublic"
+        "401":
+          description: Authentication error (application-specific)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HTTPValidationError"
+        "404":
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HTTPValidationError"
+        "422":
+          description: Validation error (application or request body)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HTTPValidationError"
+
+components:
+  schemas:
+    EmailAddress:
+      type: object
+      required: [address, alias]
+      properties:
+        address:
+          type: string
+          format: email
+        alias:
+          type: string
+
+    UserPublic:
+      type: object
+      required: [name, emails]
+      properties:
+        name:
+          type: string
+        emails:
+          type: array
+          items:
+            $ref: "#/components/schemas/EmailAddress"
+
+    AuthResponse:
+      type: object
+      required: [ok, message]
+      properties:
+        ok:
+          type: boolean
+        message:
+          type: string
+        user:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/UserPublic"
+        token:
+          type: string
+          nullable: true
+
+    RegisterRequest:
+      type: object
+      required: [name, password]
+      properties:
+        name:
+          type: string
+        password:
+          type: string
+          format: password
+        email:
+          type: string
+          format: email
+          nullable: true
+          description: If set, stored as the user's initial email entry (`alias` empty).
+
+    UserCredentials:
+      type: object
+      required: [name, password]
+      properties:
+        name:
+          type: string
+        password:
+          type: string
+          format: password
+
+    UserEmailUpdate:
+      type: object
+      required: [name, address]
+      properties:
+        name:
+          type: string
+          description: Username whose email list is updated
+        address:
+          type: string
+          format: email
+        alias:
+          type: string
+          default: ""
+
+    ValidationError:
+      type: object
+      properties:
+        loc:
+          type: array
+          items:
+            oneOf:
+              - type: string
+              - type: integer
+        msg:
+          type: string
+        type:
+          type: string
+
+    HTTPValidationError:
+      type: object
+      properties:
+        detail:
+          oneOf:
+            - type: string
+              description: Single error message from HTTPException
+            - type: array
+              items:
+                $ref: "#/components/schemas/ValidationError"
+              description: Pydantic/FastAPI request validation errors

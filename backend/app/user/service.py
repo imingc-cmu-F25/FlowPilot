@@ -32,11 +32,15 @@ class UserService:
         initial_emails: list | None = None
         if email:
             initial_emails = [{"address": email, "alias": ""}]
-        self.repo.create(name, password_hash, initial_emails)
+        user_orm = self.repo.create(name, password_hash, initial_emails)
+        emails = [
+            EmailAddress(address=e["address"], alias=e.get("alias", ""))
+            for e in (user_orm.emails or [])
+        ]
         return AuthResponse(
             ok=True,
             message="Registration successful",
-            user=UserPublic(name=name),
+            user=UserPublic(name=name, emails=emails),
             token=None,
         )
 
@@ -49,11 +53,15 @@ class UserService:
         token = secrets.token_urlsafe(32)
         self.repo.create_session(token, name)
 
+        emails = [
+            EmailAddress(address=e["address"], alias=e.get("alias", ""))
+            for e in (user.emails or [])
+        ]
         return (
             AuthResponse(
                 ok=True,
                 message="Login successful",
-                user=UserPublic(name=name),
+                user=UserPublic(name=name, emails=emails),
                 token=None,
             ),
             token,
@@ -74,4 +82,8 @@ class UserService:
         updated = self.repo.update_emails(name, current)
         if not updated:
             raise NotFoundError("User not found")
-        return UserPublic(name=name)
+        emails = [
+            EmailAddress(address=e["address"], alias=e.get("alias", ""))
+            for e in (updated.emails or [])
+        ]
+        return UserPublic(name=name, emails=emails)
