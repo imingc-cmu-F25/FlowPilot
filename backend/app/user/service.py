@@ -1,8 +1,6 @@
 import secrets
-
 import bcrypt
 from sqlalchemy.orm import Session
-
 from app.core.exceptions import AuthenticationError, DuplicateError, NotFoundError
 from app.user.emailAddress import EmailAddress
 from app.user.repo import UserRepository
