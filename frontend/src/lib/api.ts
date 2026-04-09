@@ -78,6 +78,40 @@ export async function appendUserEmail(
   return data as UserPublic;
 }
 
+export async function deleteUserEmail(
+  name: string,
+  address: string,
+): Promise<UserPublic> {
+  const res = await apiFetch(`${API_BASE}/users/users/emails`, {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, address }),
+  });
+  const data = await parseBody(res);
+  if (!res.ok) {
+    throw new Error(extractDetail(data) ?? res.statusText);
+  }
+  return data as UserPublic;
+}
+
+export async function editUserEmail(
+  name: string,
+  old_address: string,
+  new_address: string,
+  new_alias: string,
+): Promise<UserPublic> {
+  const res = await apiFetch(`${API_BASE}/users/users/emails`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, old_address, new_address, new_alias }),
+  });
+  const data = await parseBody(res);
+  if (!res.ok) {
+    throw new Error(extractDetail(data) ?? res.statusText);
+  }
+  return data as UserPublic;
+}
+
 export async function registerUser(body: {
   name: string;
   password: string;

@@ -30,3 +30,15 @@ class UserEmailUpdate(BaseModel):
     name: str
     address: str
     alias: str = ""
+
+
+class UserEmailDelete(BaseModel):
+    name: str
+    address: str
+
+
+class UserEmailEdit(BaseModel):
+    name: str
+    old_address: str
+    new_address: str
+    new_alias: str = ""

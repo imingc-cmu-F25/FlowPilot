@@ -4,6 +4,8 @@ import { HomeTopBar } from "../components/HomeTopBar";
 import { getStoredUsername } from "../auth/storage";
 import {
   appendUserEmail,
+  deleteUserEmail,
+  editUserEmail,
   fetchAllUsers,
   type EmailAddress,
 } from "../lib/api";
@@ -16,6 +18,10 @@ export function ProfilePage() {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [editingAddress, setEditingAddress] = useState<string | null>(null);
+  const [editAddress, setEditAddress] = useState("");
+  const [editAlias, setEditAlias] = useState("");
+  const [actionPending, setActionPending] = useState<string | null>(null);
 
   const loadEmails = useCallback(async () => {
     if (!username) return;
@@ -36,6 +42,54 @@ export function ProfilePage() {
   useEffect(() => {
     void loadEmails();
   }, [loadEmails]);
+
+  const handleDeleteEmail = async (address: string) => {
+    if (!username) return;
+    setActionPending(address);
+    setError(null);
+    try {
+      const updated = await deleteUserEmail(username, address);
+      setEmails(updated.emails);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not delete email");
+    } finally {
+      setActionPending(null);
+    }
+  };
+
+  const startEdit = (row: EmailAddress) => {
+    setEditingAddress(row.address);
+    setEditAddress(row.address);
+    setEditAlias(row.alias);
+    setError(null);
+  };
+
+  const cancelEdit = () => {
+    setEditingAddress(null);
+    setEditAddress("");
+    setEditAlias("");
+  };
+
+  const handleEditEmail = async (e: FormEvent, oldAddress: string) => {
+    e.preventDefault();
+    if (!username) return;
+    const newAddress = editAddress.trim();
+    if (!newAddress) {
+      setError("Email address is required");
+      return;
+    }
+    setActionPending(oldAddress);
+    setError(null);
+    try {
+      const updated = await editUserEmail(username, oldAddress, newAddress, editAlias.trim());
+      setEmails(updated.emails);
+      cancelEdit();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not update email");
+    } finally {
+      setActionPending(null);
+    }
+  };
 
   const handleAddEmail = async (e: FormEvent) => {
     e.preventDefault();
@@ -108,12 +162,74 @@ export function ProfilePage() {
                 {emails.map((row) => (
                   <li
                     key={`${row.address}-${row.alias}`}
-                    className="flex flex-wrap items-baseline justify-between gap-2 rounded-lg border border-gray-200 px-4 py-3"
+                    className="rounded-lg border border-gray-200 px-4 py-3"
                   >
-                    <span className="font-medium text-gray-900">{row.address}</span>
-                    {row.alias ? (
-                      <span className="text-sm text-gray-500">{row.alias}</span>
-                    ) : null}
+                    {editingAddress === row.address ? (
+                      <form onSubmit={(e) => handleEditEmail(e, row.address)} className="space-y-3">
+                        <div>
+                          <label className="mb-1 block text-xs font-medium text-gray-600">Email address</label>
+                          <input
+                            type="email"
+                            value={editAddress}
+                            onChange={(e) => setEditAddress(e.target.value)}
+                            className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="mb-1 block text-xs font-medium text-gray-600">Alias</label>
+                          <input
+                            type="text"
+                            value={editAlias}
+                            onChange={(e) => setEditAlias(e.target.value)}
+                            placeholder="Work, school, personal…"
+                            className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                          />
+                        </div>
+                        <div className="flex gap-2">
+                          <button
+                            type="submit"
+                            disabled={actionPending === row.address}
+                            className="rounded-lg bg-blue-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                          >
+                            {actionPending === row.address ? "Saving…" : "Save"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={cancelEdit}
+                            className="rounded-lg border border-gray-300 px-4 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </form>
+                    ) : (
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex flex-wrap items-baseline gap-2">
+                          <span className="font-medium text-gray-900">{row.address}</span>
+                          {row.alias ? (
+                            <span className="text-sm text-gray-500">{row.alias}</span>
+                          ) : null}
+                        </div>
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => startEdit(row)}
+                            disabled={actionPending !== null}
+                            className="rounded-lg border border-gray-300 px-3 py-1 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                          >
+                            Edit
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteEmail(row.address)}
+                            disabled={actionPending === row.address}
+                            className="rounded-lg border border-red-200 px-3 py-1 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
+                          >
+                            {actionPending === row.address ? "Deleting…" : "Delete"}
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </li>
                 ))}
               </ul>

@@ -9,6 +9,8 @@ from app.user.user import (
     AuthResponse,
     RegisterRequest,
     UserCredentials,
+    UserEmailDelete,
+    UserEmailEdit,
     UserEmailUpdate,
     UserPublic,
 )
@@ -51,3 +53,23 @@ def update_email(body: UserEmailUpdate, db: Session = Depends(get_db)) -> UserPu
         raise HTTPException(status_code=422, detail=e.message)
     except AuthenticationError as e:
         raise HTTPException(status_code=401, detail=e.message)
+
+@router.delete("/users/emails", response_model=UserPublic, tags=["auth"])
+def delete_email(body: UserEmailDelete, db: Session = Depends(get_db)) -> UserPublic:
+    try:
+        return UserService(db).delete_email(body.name, body.address)
+    except NotFoundError as e:
+        raise HTTPException(status_code=404, detail=e.message)
+
+@router.patch("/users/emails", response_model=UserPublic, tags=["auth"])
+def edit_email(body: UserEmailEdit, db: Session = Depends(get_db)) -> UserPublic:
+    try:
+        return UserService(db).edit_email(
+            body.name,
+            body.old_address,
+            EmailAddress(address=body.new_address, alias=body.new_alias),
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=404, detail=e.message)
+    except ValidationError as e:
+        raise HTTPException(status_code=422, detail=e.message)

@@ -71,6 +71,40 @@ class UserService:
         rows = self.repo.get_all_users()
         return [UserPublic(name=row.name, emails=[EmailAddress(address=email["address"], alias=email["alias"]) for email in row.emails or []]) for row in rows]
 
+    def delete_email(self, name: str, address: str) -> UserPublic:
+        user = self.repo.get_by_name(name)
+        if not user:
+            raise NotFoundError("User not found")
+        updated_list = [e for e in (user.emails or []) if e["address"] != address]
+        updated = self.repo.update_emails(name, updated_list)
+        if not updated:
+            raise NotFoundError("User not found")
+        emails = [
+            EmailAddress(address=e["address"], alias=e.get("alias", ""))
+            for e in (updated.emails or [])
+        ]
+        return UserPublic(name=name, emails=emails)
+
+    def edit_email(self, name: str, old_address: str, new_email: EmailAddress) -> UserPublic:
+        user = self.repo.get_by_name(name)
+        if not user:
+            raise NotFoundError("User not found")
+        current = list(user.emails or [])
+        updated_list = [
+            {"address": new_email.address, "alias": new_email.alias}
+            if e["address"] == old_address
+            else e
+            for e in current
+        ]
+        updated = self.repo.update_emails(name, updated_list)
+        if not updated:
+            raise NotFoundError("User not found")
+        emails = [
+            EmailAddress(address=e["address"], alias=e.get("alias", ""))
+            for e in (updated.emails or [])
+        ]
+        return UserPublic(name=name, emails=emails)
+
     def update_email(self, name: str, email: EmailAddress) -> UserPublic:
         user = self.repo.get_by_name(name)
 
