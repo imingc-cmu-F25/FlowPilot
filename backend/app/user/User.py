@@ -1,10 +1,11 @@
 import bcrypt
 from pydantic import BaseModel
-from EmailAddress import EmailAddress
+from app.user.emailAddress import EmailAddress
 
 
 class UserPublic(BaseModel):
     name: str
+    emails: list[EmailAddress]
 
 
 class AuthResponse(BaseModel):
@@ -17,6 +18,18 @@ class AuthResponse(BaseModel):
 class UserCredentials(BaseModel):
     name: str
     password: str
+
+
+class RegisterRequest(BaseModel):
+    name: str
+    password: str
+    email: str | None = None
+
+
+class UserEmailUpdate(BaseModel):
+    name: str
+    address: str
+    alias: str = ""
 
 
 class User(BaseModel):

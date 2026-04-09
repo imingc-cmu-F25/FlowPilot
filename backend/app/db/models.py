@@ -11,6 +11,7 @@ class UserORM(Base):
 
     name: Mapped[str] = mapped_column(String(255), primary_key=True)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    emails: Mapped[list | None] = mapped_column(JSON, nullable=True)
 
 
 class UserSessionORM(Base):

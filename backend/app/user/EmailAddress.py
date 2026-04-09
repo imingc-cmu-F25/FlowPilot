@@ -1,3 +1,6 @@
+from pydantic import BaseModel
+
+
 class EmailAddress(BaseModel):
     address: str
     alias: str
