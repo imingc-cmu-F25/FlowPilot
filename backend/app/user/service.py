@@ -1,12 +1,11 @@
 import secrets
 
 import bcrypt
-from sqlalchemy.orm import Session
-
 from app.core.exceptions import AuthenticationError, DuplicateError, NotFoundError
 from app.user.emailAddress import EmailAddress
 from app.user.repo import UserRepository
 from app.user.user import AuthResponse, UserPublic
+from sqlalchemy.orm import Session
 
 
 def _hash_password(password: str) -> str:

@@ -1,7 +1,6 @@
-from fastapi.testclient import TestClient
-
 from app.api.router import SESSION_COOKIE_NAME
 from app.main import app
+from fastapi.testclient import TestClient
 
 client = TestClient(app)
 

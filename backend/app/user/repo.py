@@ -1,7 +1,6 @@
+from app.db.models import UserORM, UserSessionORM
 from sqlalchemy import select
 from sqlalchemy.orm import Session
-
-from app.db.models import UserORM, UserSessionORM
 
 
 class UserRepository:

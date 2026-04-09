@@ -4,7 +4,6 @@ os.environ.setdefault("DATABASE_CHECK_ON_STARTUP", "false")
 os.environ["DATABASE_URL"] = "sqlite+pysqlite:///:memory:"
 
 import pytest
-
 from app.db.base import Base
 from app.db.connector import get_engine
 from app.db.session import init_db

@@ -1,6 +1,5 @@
-from pydantic import BaseModel
-
 from app.user.emailAddress import EmailAddress
+from pydantic import BaseModel
 
 
 class UserPublic(BaseModel):
