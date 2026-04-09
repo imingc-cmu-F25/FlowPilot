@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.core.exceptions import DuplicateError, NotFoundError, AuthenticationError, ValidationError
+from app.core.exceptions import AuthenticationError, DuplicateError, NotFoundError, ValidationError
 from app.db.session import get_db
 from app.user.emailAddress import EmailAddress
 from app.user.service import UserService

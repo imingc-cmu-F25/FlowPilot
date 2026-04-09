@@ -69,7 +69,13 @@ class UserService:
 
     def get_all_users(self) -> list[UserPublic]:
         rows = self.repo.get_all_users()
-        return [UserPublic(name=row.name, emails=[EmailAddress(address=email["address"], alias=email["alias"]) for email in row.emails or []]) for row in rows]
+        ret = []
+        for row in rows: 
+            emails = []
+            for email in row.emails or []: 
+                emails.append(EmailAddress(address=email["address"], alias=email["alias"]))
+            ret.append(UserPublic(name=row.name, emails=emails))
+        return ret
 
     def delete_email(self, name: str, address: str) -> UserPublic:
         user = self.repo.get_by_name(name)

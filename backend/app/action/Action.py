@@ -1,7 +1,9 @@
 # action/base.py
 
 from abc import ABC, abstractmethod
+
 from pydantic import BaseModel
+
 
 class ActionSchema(BaseModel):
     id: str

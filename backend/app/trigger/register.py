@@ -1,7 +1,6 @@
 # action/registry.py  &  trigger/registry.py  (same pattern)
 
-from app.trigger.Trigger import BaseTrigger
-from app.trigger.Trigger import ScheduleTrigger
+from app.trigger.Trigger import BaseTrigger, ScheduleTrigger
 
 
 class TriggerRegistry:

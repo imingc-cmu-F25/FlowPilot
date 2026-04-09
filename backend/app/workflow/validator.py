@@ -1,6 +1,7 @@
 # workflow/validator.py
 
-from app.workflow.Workflow import Workflow, StepType
+from app.workflow.Workflow import StepType, Workflow
+
 
 class WorkflowValidationError(Exception):
     def __init__(self, errors: list[str]):
@@ -21,7 +22,8 @@ def validate_workflow(wf: Workflow) -> list[str]:
 
     visited, in_stack = set(), set()
     def has_cycle(node):
-        visited.add(node); in_stack.add(node)
+        visited.add(node)
+        in_stack.add(node)
         for nb in adj.get(node, []):
             if nb in in_stack:
                 return True

@@ -1,16 +1,18 @@
 # workflow/models.py
 
-from enum import Enum
-from uuid import UUID, uuid4
 from datetime import datetime
+from enum import StrEnum
+from uuid import UUID, uuid4
+
 from pydantic import BaseModel, Field
 
-class StepType(str, Enum):
+
+class StepType(StrEnum):
     TRIGGER = "trigger"
     ACTION = "action"
     CONDITION = "condition"
 
-class WorkflowStatus(str, Enum):
+class WorkflowStatus(StrEnum):
     DRAFT = "draft"
     ACTIVE = "active"
     PAUSED = "paused"

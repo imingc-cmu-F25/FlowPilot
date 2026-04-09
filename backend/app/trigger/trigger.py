@@ -1,7 +1,9 @@
 # trigger/base.py
 
 from abc import ABC, abstractmethod
+
 from pydantic import BaseModel
+
 
 class TriggerSchema(BaseModel):
     """Describes a trigger type so the frontend can render its config form."""

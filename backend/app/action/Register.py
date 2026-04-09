@@ -1,7 +1,7 @@
 # action/registry.py  &  trigger/registry.py  (same pattern)
 
-from app.action.Action import BaseAction
-from app.action.Action import SendEmailAction
+from app.action.Action import BaseAction, SendEmailAction
+
 
 class ActionRegistry:
     _actions: dict[str, type[BaseAction]] = {}
