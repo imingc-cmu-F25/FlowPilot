@@ -1,52 +1,41 @@
-# workflow/validator.py
-
-from app.workflow.Workflow import StepType, Workflow
+from app.workflow.workflow import WorkflowDefinition
 
 
-class WorkflowValidationError(Exception):
-    def __init__(self, errors: list[str]):
-        self.errors = errors
+def validate_workflow(wf: WorkflowDefinition) -> list[str]:
+    """
+    Return a list of error strings; empty list means the workflow is valid.
+   
+    Validation rules:
+    - Workflow must have a trigger, and trigger config must be valid.
+    - Workflow must have at least one action step.
+    - step_order values must be unique across steps.
+    - Each step validates its own required fields.
+    """
+    errors: list[str] = []
 
-def validate_workflow(wf: Workflow) -> list[str]:
-    errors = []
+    # trigger presence
+    if wf.trigger is None:
+        errors.append("Workflow must have a trigger.")
+    else:
+        try:
+            wf.trigger.validate_config()
+        except ValueError as exc:
+            errors.append(f"Trigger: {exc}")
 
-    # 1. Exactly one trigger
-    triggers = [s for s in wf.steps if s.step_type == StepType.TRIGGER]
-    if len(triggers) != 1:
-        errors.append(f"Workflow must have exactly 1 trigger, found {len(triggers)}.")
+    # has at least one action step
+    if not wf.steps:
+        errors.append("Workflow must have at least one action step.")
 
-    # 2. Cycle detection via topological sort
-    adj: dict[str, list[str]] = {str(s.id): [] for s in wf.steps}
-    for e in wf.edges:
-        adj[str(e.source_step_id)].append(str(e.target_step_id))
+    # step_order values must be unique
+    orders = [s.step_order for s in wf.steps]
+    if len(orders) != len(set(orders)):
+        errors.append("Duplicate step_order values found.")
 
-    visited, in_stack = set(), set()
-    def has_cycle(node):
-        visited.add(node)
-        in_stack.add(node)
-        for nb in adj.get(node, []):
-            if nb in in_stack:
-                return True
-            if nb not in visited and has_cycle(nb):
-                return True
-        in_stack.discard(node)
-        return False
-
-    for node in adj:
-        if node not in visited and has_cycle(node):
-            errors.append("Workflow contains a cycle.")
-            break
-
-    # 3. Orphaned steps (no incoming or outgoing edge, excluding trigger)
-    connected = set()
-    for e in wf.edges:
-        connected.add(str(e.source_step_id))
-        connected.add(str(e.target_step_id))
-    for s in wf.steps:
-        if s.step_type != StepType.TRIGGER and str(s.id) not in connected:
-            errors.append(f"Step '{s.name}' is disconnected.")
-
-    # 4. Required config fields populated
-    # (would cross-reference against ActionRegistry/TriggerRegistry schemas)
+    # each step validates its own required fields
+    for step in wf.steps:
+        try:
+            step.validate_step()
+        except ValueError as exc:
+            errors.append(f"Step '{step.name}' (order {step.step_order}): {exc}")
 
     return errors

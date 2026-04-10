@@ -7,6 +7,7 @@ from app.api.router import api_router
 from app.core.config import settings
 from app.db.connector import report_connection_at_startup
 from app.db.session import init_db
+from app.user.router import router as user_router
 
 
 @asynccontextmanager
@@ -35,3 +36,4 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(api_router, prefix="/api")
+app.include_router(user_router, prefix="/api/users")

@@ -1,16 +1,13 @@
-# workflow/models.py
-
-from datetime import datetime
+from abc import ABC, abstractmethod
+from datetime import datetime, timezone
 from enum import StrEnum
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field
 
+from app.action.action import ActionStep, StepSpec, ActionStepFactory
+from app.trigger.trigger import TriggerConfig, TriggerSpec, TRIGGER_FACTORIES
 
-class StepType(StrEnum):
-    TRIGGER = "trigger"
-    ACTION = "action"
-    CONDITION = "condition"
 
 class WorkflowStatus(StrEnum):
     DRAFT = "draft"
@@ -18,40 +15,123 @@ class WorkflowStatus(StrEnum):
     PAUSED = "paused"
     ARCHIVED = "archived"
 
-class Position(BaseModel):
-    """Canvas coordinates for the frontend node."""
-    x: float
-    y: float
 
-class StepConfig(BaseModel):
-    """Dynamic config payload — shape depends on the step's connector/action type."""
-    connector_id: str | None = None
-    action_id: str | None = None
-    parameters: dict = Field(default_factory=dict)
-
-class Edge(BaseModel):
-    """A directed connection between two steps."""
-    id: UUID = Field(default_factory=uuid4)
-    source_step_id: UUID
-    target_step_id: UUID
-    condition: str | None = None  # optional branch label
-
-class Step(BaseModel):
-    """A single node on the workflow canvas."""
-    id: UUID = Field(default_factory=uuid4)
-    name: str
-    step_type: StepType
-    config: StepConfig = Field(default_factory=StepConfig)
-    position: Position
-    timeout_seconds: int = 300
-
-class Workflow(BaseModel):
-    """Top-level workflow definition stored in Postgres."""
-    id: UUID = Field(default_factory=uuid4)
+class WorkflowDefinition(BaseModel):
+    """
+    The final workflow object produced by the builder.
+    
+    Contains exactly one trigger config and an ordered list of action steps.
+    Stored in WorkflowORM.payload as JSON.
+    """
+    workflow_id: UUID = Field(default_factory=uuid4)
+    owner_id: UUID
     name: str
     description: str = ""
+    enabled: bool = False
     status: WorkflowStatus = WorkflowStatus.DRAFT
-    steps: list[Step] = Field(default_factory=list)
-    edges: list[Edge] = Field(default_factory=list)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    trigger: TriggerConfig
+    steps: list[ActionStep] = []
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+# Builder interface
+class IWorkflowBuilder(ABC):
+    @abstractmethod
+    def reset(self, owner_id: UUID) -> None: ...
+
+    @abstractmethod
+    def set_metadata(self, name: str, description: str) -> None: ...
+
+    @abstractmethod
+    def set_trigger(self, spec: TriggerSpec) -> None: ...
+
+    @abstractmethod
+    def add_step(self, spec: StepSpec) -> None: ...
+
+    @abstractmethod
+    def reorder_steps(self, step_ids: list[UUID]) -> None: ...
+
+    @abstractmethod
+    def set_enabled(self, enabled: bool) -> None: ...
+
+    @abstractmethod
+    def build(self) -> WorkflowDefinition: ...
+
+
+class WorkflowDefinitionBuilder(IWorkflowBuilder):
+    """
+    Assembles a WorkflowDefinition incrementally.
+
+    Sequence: reset() → set_metadata() → set_trigger() → add_step()* → build()
+    
+    build() validates completeness then returns the immutable product and clears
+    internal state so the builder instance can be reused.
+    """
+
+    def __init__(self) -> None:
+        self._draft: dict = {}
+
+    def reset(self, owner_id: UUID) -> None:
+        self._draft = {
+            "workflow_id": uuid4(),
+            "owner_id": owner_id,
+            "steps": [],
+            "enabled": False,
+            "status": WorkflowStatus.DRAFT,
+            "created_at": datetime.now(timezone.utc),
+            "updated_at": datetime.now(timezone.utc),
+        }
+
+    def set_metadata(self, name: str, description: str = "") -> None:
+        self._require_reset()
+        self._draft["name"] = name
+        self._draft["description"] = description
+
+    def set_trigger(self, spec: TriggerSpec) -> None:
+        self._require_reset()
+        factory = TRIGGER_FACTORIES.get(spec.type)
+        if factory is None:
+            raise ValueError(f"No factory registered for trigger type: {spec.type}")
+        self._draft["trigger"] = factory.create(spec)
+
+    def add_step(self, spec: StepSpec) -> None:
+        self._require_reset()
+        step = ActionStepFactory.create(spec)
+        self._draft["steps"].append(step)
+        self._draft["steps"].sort(key=lambda s: s.step_order)
+
+    def reorder_steps(self, step_ids: list[UUID]) -> None:
+        self._require_reset()
+        index = {sid: i for i, sid in enumerate(step_ids)}
+        for step in self._draft["steps"]:
+            if step.step_id in index:
+                step.step_order = index[step.step_id]
+        self._draft["steps"].sort(key=lambda s: s.step_order)
+
+    def set_enabled(self, enabled: bool) -> None:
+        self._require_reset()
+        self._draft["enabled"] = enabled
+
+    def build(self) -> WorkflowDefinition:
+        self._require_reset()
+        self._validate_before_build()
+        result = WorkflowDefinition(**self._draft)
+        self._draft = {}
+        return result
+
+    # private methods
+    def _require_reset(self) -> None:
+        if not self._draft:
+            raise RuntimeError("Call reset() before using the builder")
+
+    def _validate_before_build(self) -> None:
+        errors: list[str] = []
+        if not self._draft.get("name"):
+            errors.append("name is required")
+        if "trigger" not in self._draft:
+            errors.append("trigger is required")
+        if not self._draft["steps"]:
+            errors.append("at least one action step is required")
+        if errors:
+            raise ValueError(f"Incomplete workflow: {errors}")

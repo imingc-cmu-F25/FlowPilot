@@ -1,23 +1,24 @@
-# action/registry.py  &  trigger/registry.py  (same pattern)
-
-from app.trigger.Trigger import BaseTrigger, ScheduleTrigger
+from app.trigger.trigger import BaseTrigger, ScheduleTrigger, WebhookTrigger
 
 
 class TriggerRegistry:
-    _actions: dict[str, type[BaseTrigger]] = {}
+    _triggers: dict[str, type[BaseTrigger]] = {}
 
     @classmethod
-    def register(cls, action_cls: type[BaseTrigger]):
-        cls._actions[action_cls.schema.id] = action_cls
-        return action_cls
+    def register(cls, trigger_cls: type[BaseTrigger]) -> type[BaseTrigger]:
+        cls._triggers[trigger_cls.schema.id] = trigger_cls
+        return trigger_cls
 
     @classmethod
-    def get(cls, action_id: str) -> type[BaseTrigger]:
-        return cls._actions[action_id]
+    def get(cls, trigger_id: str) -> type[BaseTrigger]:
+        if trigger_id not in cls._triggers:
+            raise KeyError(f"No trigger registered for id: {trigger_id!r}")
+        return cls._triggers[trigger_id]
 
     @classmethod
     def list_schemas(cls) -> list:
-        return [a.schema for a in cls._actions.values()]
+        return [t.schema for t in cls._triggers.values()]
 
-# Auto-register on import
+
 TriggerRegistry.register(ScheduleTrigger)
+TriggerRegistry.register(WebhookTrigger)
