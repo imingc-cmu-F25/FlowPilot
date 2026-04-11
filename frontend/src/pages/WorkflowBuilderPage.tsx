@@ -50,7 +50,6 @@ const triggers = [
 
 const actions = [
   { category: "email", title: "Send Email", icon: Mail },
-  { category: "notification", title: "Send Notification", icon: Bell },
   { category: "api", title: "API Call", icon: Code },
 ];
 

@@ -32,11 +32,6 @@ const features = [
     description: "Send automated emails as part of your workflow",
   },
   {
-    icon: Bell,
-    title: "Smart Notifications",
-    description: "Get notified instantly when your workflows execute",
-  },
-  {
     icon: Code,
     title: "API Integrations",
     description: "Connect to any API and automate complex tasks",
