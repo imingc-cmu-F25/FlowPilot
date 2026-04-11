@@ -63,6 +63,48 @@ def _migrate_workflow_owner_column() -> None:
             # SQLite can't drop columns before 3.35; owner_id becomes dead weight
 
 
+def _ensure_workflow_runs_retry_columns() -> None:
+    """Add retry_count / max_retries to workflow_runs if missing (additive migration)."""
+    engine = get_engine()
+    insp = inspect(engine)
+    if not insp.has_table("workflow_runs"):
+        return
+    cols = {c["name"] for c in insp.get_columns("workflow_runs")}
+    if "retry_count" in cols and "max_retries" in cols:
+        return
+    with engine.begin() as conn:
+        if engine.dialect.name == "postgresql":
+            if "retry_count" not in cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE workflow_runs ADD COLUMN retry_count "
+                        "INTEGER NOT NULL DEFAULT 0"
+                    )
+                )
+            if "max_retries" not in cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE workflow_runs ADD COLUMN max_retries "
+                        "INTEGER NOT NULL DEFAULT 0"
+                    )
+                )
+        elif engine.dialect.name == "sqlite":
+            if "retry_count" not in cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE workflow_runs ADD COLUMN retry_count "
+                        "INTEGER NOT NULL DEFAULT 0"
+                    )
+                )
+            if "max_retries" not in cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE workflow_runs ADD COLUMN max_retries "
+                        "INTEGER NOT NULL DEFAULT 0"
+                    )
+                )
+
+
 def _drop_legacy_payload_column() -> None:
     """
     One-time migration: remove the old workflows.payload blob column that was
@@ -86,6 +128,7 @@ def init_db() -> None:
     Base.metadata.create_all(bind=get_engine())
     _ensure_users_emails_column()
     _migrate_workflow_owner_column()
+    _ensure_workflow_runs_retry_columns()
     _drop_legacy_payload_column()
 
 
