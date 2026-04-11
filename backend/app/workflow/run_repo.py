@@ -3,6 +3,7 @@
 from datetime import UTC, datetime
 from uuid import UUID
 
+from sqlalchemy import update
 from sqlalchemy.orm import Session
 
 from app.db.schema import WorkflowRunORM
@@ -27,18 +28,62 @@ class WorkflowRunRepository:
             finished_at=run.finished_at,
             error=run.error,
             output=run.output,
+            retry_count=run.retry_count,
+            max_retries=run.max_retries,
         )
         self._db.add(orm)
         self._db.flush()
         return run
 
+    def try_claim_running(self, run_id: UUID) -> WorkflowRun | None:
+        """
+        Atomically transition PENDING -> RUNNING. Returns the run if claimed, else None.
+        Used to avoid duplicate execution when multiple workers see the same task.
+        """
+        now = datetime.now(UTC)
+        stmt = (
+            update(WorkflowRunORM)
+            .where(
+                WorkflowRunORM.id == run_id,
+                WorkflowRunORM.status == RunStatus.PENDING.value,
+            )
+            .values(
+                status=RunStatus.RUNNING.value,
+                started_at=now,
+            )
+            .execution_options(synchronize_session=False)
+        )
+        result = self._db.execute(stmt)
+        if result.rowcount == 0:
+            return None
+        self._db.flush()
+        return self.get(run_id)
+
     def mark_running(self, run_id: UUID) -> WorkflowRun | None:
-        """Transition a run from PENDING to RUNNING."""
+        """Transition a run from PENDING to RUNNING (non-atomic; prefer try_claim_running)."""
         orm = self._db.get(WorkflowRunORM, run_id)
         if orm is None:
             return None
-        orm.status = RunStatus.RUNNING
+        orm.status = RunStatus.RUNNING.value
         orm.started_at = datetime.now(UTC)
+        self._db.flush()
+        return self._to_domain(orm)
+
+    def mark_retrying(self, run_id: UUID, retry_count: int) -> WorkflowRun | None:
+        orm = self._db.get(WorkflowRunORM, run_id)
+        if orm is None:
+            return None
+        orm.status = RunStatus.RETRYING.value
+        orm.retry_count = retry_count
+        self._db.flush()
+        return self._to_domain(orm)
+
+    def mark_running_from_retry(self, run_id: UUID) -> WorkflowRun | None:
+        """RETRYING -> RUNNING before re-attempting a step."""
+        orm = self._db.get(WorkflowRunORM, run_id)
+        if orm is None:
+            return None
+        orm.status = RunStatus.RUNNING.value
         self._db.flush()
         return self._to_domain(orm)
 
@@ -47,7 +92,7 @@ class WorkflowRunRepository:
         orm = self._db.get(WorkflowRunORM, run_id)
         if orm is None:
             return None
-        orm.status = RunStatus.SUCCESS
+        orm.status = RunStatus.SUCCESS.value
         orm.finished_at = datetime.now(UTC)
         orm.output = output
         self._db.flush()
@@ -58,7 +103,7 @@ class WorkflowRunRepository:
         orm = self._db.get(WorkflowRunORM, run_id)
         if orm is None:
             return None
-        orm.status = RunStatus.FAILED
+        orm.status = RunStatus.FAILED.value
         orm.finished_at = datetime.now(UTC)
         orm.error = error
         self._db.flush()
@@ -85,7 +130,7 @@ class WorkflowRunRepository:
         )
         return [self._to_domain(r) for r in rows]
 
-    #  private 
+    #  private
 
     @staticmethod
     def _to_domain(orm: WorkflowRunORM) -> WorkflowRun:
@@ -99,4 +144,6 @@ class WorkflowRunRepository:
             finished_at=orm.finished_at,
             error=orm.error,
             output=orm.output,
+            retry_count=getattr(orm, "retry_count", 0),
+            max_retries=getattr(orm, "max_retries", 0),
         )

@@ -8,10 +8,11 @@ from pydantic import BaseModel, Field
 
 
 class RunStatus(StrEnum):
-    PENDING  = "pending"   # created, waiting to be picked up by worker
-    RUNNING  = "running"   # worker is executing steps
-    SUCCESS  = "success"   # all steps completed successfully
-    FAILED   = "failed"    # one or more steps failed
+    PENDING = "pending"  # created, waiting to be picked up by worker
+    RUNNING = "running"  # worker is executing steps
+    RETRYING = "retrying"  # between retry attempts (optional; persisted in DB)
+    SUCCESS = "success"  # all steps completed successfully
+    FAILED = "failed"  # one or more steps failed (terminal)
 
 
 class WorkflowRun(BaseModel):
@@ -25,4 +26,6 @@ class WorkflowRun(BaseModel):
     started_at: datetime | None = None
     finished_at: datetime | None = None
     error: str | None = None
-    output: dict | None = None                               # last step's output
+    output: dict | None = None  # last step's output
+    retry_count: int = 0
+    max_retries: int = 0  # per-run cap; 0 means fail on first step error

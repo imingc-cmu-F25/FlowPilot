@@ -1,16 +1,18 @@
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import ValidationError
+from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.action.actionRegistry import ActionRegistry
 from app.core.config import settings
 from app.db.session import get_db
+from app.execution.contracts import enqueue_execute_run
 from app.trigger.triggerRegistry import TriggerRegistry
 from app.user.repo import UserRepository
 from app.workflow.repo import WorkflowRepository
+from app.workflow.run import RunStatus, WorkflowRun
 from app.workflow.run_repo import WorkflowRunRepository
 from app.workflow.service import (
     CreateWorkflowCommand,
@@ -173,6 +175,39 @@ def get_run(wf_id: UUID, run_id: UUID, db: Session = Depends(get_db)):
     if run is None or run.workflow_id != wf_id:
         raise HTTPException(404, detail="Run not found")
     return run
+
+
+class CreateWorkflowRunBody(BaseModel):
+    """Manual / dev trigger — creates a pending run and optionally enqueues execution."""
+
+    trigger_type: str = Field(default="manual", description="Stored on workflow_runs.trigger_type")
+    max_retries: int = Field(default=0, ge=0, le=10)
+    enqueue: bool = Field(
+        default=True,
+        description="If true, dispatch Celery task execution.execute_workflow_run",
+    )
+
+
+@api_router.post("/workflows/{wf_id}/runs", status_code=201, tags=["workflow-runs"])
+def create_workflow_run(
+    wf_id: UUID,
+    body: CreateWorkflowRunBody,
+    db: Session = Depends(get_db),
+):
+    """Create a workflow run row (pending) and optionally enqueue the execution engine."""
+    wf_repo = WorkflowRepository(db)
+    if wf_repo.get(wf_id) is None:
+        raise HTTPException(404, detail="Workflow not found")
+    run = WorkflowRun(
+        workflow_id=wf_id,
+        status=RunStatus.PENDING,
+        trigger_type=body.trigger_type,
+        max_retries=body.max_retries,
+    )
+    created = WorkflowRunRepository(db).create(run)
+    if body.enqueue:
+        enqueue_execute_run(created.run_id)
+    return {"run_id": str(created.run_id), "status": created.status.value, "enqueued": body.enqueue}
 
 
 # Registry
