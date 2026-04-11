@@ -23,12 +23,12 @@ def register(body: RegisterRequest, db: Session = Depends(get_db)) -> AuthRespon
     except DuplicateError as e:
         raise HTTPException(status_code=409, detail=e.message)
 
-@router.post("/login", response_model=tuple[AuthResponse, str], tags=["auth"])
-def login(user: UserCredentials, db: Session = Depends(get_db)) -> tuple[AuthResponse, str]:
+@router.post("/login", response_model=AuthResponse, tags=["auth"])
+def login(user: UserCredentials, db: Session = Depends(get_db)) -> AuthResponse:
     try:
         return UserService(db).login(user.name, user.password)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=e.message)
+    except AuthenticationError as e:
+        raise HTTPException(status_code=401, detail=e.message)
 
 @router.get("/users", response_model=list[UserPublic], tags=["auth"])
 def get_all_users(db: Session = Depends(get_db)) -> list[UserPublic]:

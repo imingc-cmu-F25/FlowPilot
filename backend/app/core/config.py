@@ -24,6 +24,13 @@ class Settings(BaseSettings):
     redis_port: int = 6379
     redis_db: int = 0
 
+    smtp_host: str = "localhost"
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
+    smtp_use_tls: bool = True
+    smtp_from: str = "noreply@flowpilot.local"
+
     openai_api_key: str = ""
     google_client_id: str = ""
     google_client_secret: str = ""

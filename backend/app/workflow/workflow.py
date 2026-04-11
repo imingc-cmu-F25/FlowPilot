@@ -6,7 +6,9 @@ from uuid import UUID, uuid4
 from pydantic import BaseModel, Field
 
 from app.action.action import ActionStep, StepSpec, ActionStepFactory
-from app.trigger.trigger import TriggerConfig, TriggerSpec, TRIGGER_FACTORIES
+from app.trigger.trigger import TriggerSpec
+from app.trigger.triggerFactories import TRIGGER_FACTORIES
+from app.trigger.triggerConfig import TriggerConfig
 
 
 class WorkflowStatus(StrEnum):

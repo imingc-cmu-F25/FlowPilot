@@ -1,12 +1,16 @@
 """Tests for trigger configs, factories, and runtime evaluators."""
 
 import asyncio
+from datetime import datetime, timedelta, timezone
+
 import pytest
 
 from app.trigger.trigger import (
-    ScheduleTriggerConfig,
-    ScheduleTriggerFactory,
-    ScheduleTrigger,
+    RecurrenceFrequency,
+    RecurrenceRule,
+    TimeTriggerConfig,
+    TimeTriggerFactory,
+    TimeTrigger,
     TriggerSpec,
     TriggerType,
     TRIGGER_FACTORIES,
@@ -16,42 +20,168 @@ from app.trigger.trigger import (
 )
 
 
-# ── ScheduleTriggerConfig ─────────────────────────────────────────────────────
+#  RecurrenceRule validation 
 
-class TestScheduleTriggerConfig:
+class TestRecurrenceRuleValidation:
+    def test_daily_valid(self):
+        rule = RecurrenceRule(frequency="daily", interval=1)
+        rule.validate_rule()  # should not raise
+
+    def test_interval_zero_raises(self):
+        rule = RecurrenceRule(frequency="daily", interval=0)
+        with pytest.raises(ValueError, match="interval must be >= 1"):
+            rule.validate_rule()
+
+    def test_weekly_without_days_raises(self):
+        rule = RecurrenceRule(frequency="weekly")
+        with pytest.raises(ValueError, match="days_of_week is required"):
+            rule.validate_rule()
+
+    def test_weekly_with_invalid_day_raises(self):
+        rule = RecurrenceRule(frequency="weekly", days_of_week=[7])
+        with pytest.raises(ValueError, match="Invalid days_of_week"):
+            rule.validate_rule()
+
+    def test_weekly_valid(self):
+        rule = RecurrenceRule(frequency="weekly", days_of_week=[0, 4])
+        rule.validate_rule()  # should not raise
+
+    def test_custom_without_cron_raises(self):
+        rule = RecurrenceRule(frequency="custom")
+        with pytest.raises(ValueError, match="cron_expression is required"):
+            rule.validate_rule()
+
+    def test_custom_with_invalid_cron_raises(self):
+        rule = RecurrenceRule(frequency="custom", cron_expression="not a cron")
+        with pytest.raises(ValueError, match="Invalid cron expression"):
+            rule.validate_rule()
+
+    def test_custom_valid(self):
+        rule = RecurrenceRule(frequency="custom", cron_expression="0 9 * * 1-5")
+        rule.validate_rule()  # should not raise
+
+
+#  RecurrenceRule.is_due 
+
+class TestRecurrenceRuleIsDue:
+    BASE = datetime(2026, 1, 1, 9, 0, 0, tzinfo=timezone.utc)  # Thursday
+
+    def test_before_start_returns_false(self):
+        rule = RecurrenceRule(frequency="daily", interval=1)
+        assert rule.is_due(self.BASE, self.BASE - timedelta(seconds=1)) is False
+
+    def test_daily_at_start_is_due(self):
+        rule = RecurrenceRule(frequency="daily", interval=1)
+        assert rule.is_due(self.BASE, self.BASE) is True
+
+    def test_daily_interval_2_due_on_day_2(self):
+        rule = RecurrenceRule(frequency="daily", interval=2)
+        now = self.BASE + timedelta(days=2)
+        assert rule.is_due(self.BASE, now) is True
+
+    def test_daily_interval_2_not_due_on_day_1(self):
+        rule = RecurrenceRule(frequency="daily", interval=2)
+        now = self.BASE + timedelta(days=1)
+        assert rule.is_due(self.BASE, now) is False
+
+    def test_hourly_due_every_hour(self):
+        rule = RecurrenceRule(frequency="hourly", interval=1)
+        now = self.BASE + timedelta(hours=3)
+        assert rule.is_due(self.BASE, now) is True
+
+    def test_minutely_due_every_minute(self):
+        rule = RecurrenceRule(frequency="minutely", interval=1)
+        now = self.BASE + timedelta(minutes=5)
+        assert rule.is_due(self.BASE, now) is True
+
+    def test_weekly_on_correct_day_is_due(self):
+        # BASE is Thursday (weekday=3)
+        rule = RecurrenceRule(frequency="weekly", days_of_week=[3])
+        now = self.BASE + timedelta(weeks=1)
+        assert rule.is_due(self.BASE, now) is True
+
+    def test_weekly_on_wrong_day_not_due(self):
+        # BASE is Thursday (weekday=3); check on Friday (weekday=4)
+        rule = RecurrenceRule(frequency="weekly", days_of_week=[3])
+        now = self.BASE + timedelta(days=1)
+        assert rule.is_due(self.BASE, now) is False
+
+    def test_weekly_interval_2_skips_odd_weeks(self):
+        rule = RecurrenceRule(frequency="weekly", interval=2, days_of_week=[3])
+        now = self.BASE + timedelta(weeks=1)  # week 1, should skip
+        assert rule.is_due(self.BASE, now) is False
+
+    def test_weekly_interval_2_fires_on_even_weeks(self):
+        rule = RecurrenceRule(frequency="weekly", interval=2, days_of_week=[3])
+        now = self.BASE + timedelta(weeks=2)  # week 2, should fire
+        assert rule.is_due(self.BASE, now) is True
+
+    def test_custom_cron_due_within_window(self):
+        # "0 9 * * *" fires at 9:00 every day; BASE is 09:00, so last was just now
+        rule = RecurrenceRule(frequency="custom", cron_expression="0 9 * * *")
+        assert rule.is_due(self.BASE, self.BASE + timedelta(seconds=5)) is True
+
+    def test_custom_cron_not_due_outside_window(self):
+        # 10 minutes after 9:00 → last cron fire was 09:00, ~600s ago
+        rule = RecurrenceRule(frequency="custom", cron_expression="0 9 * * *")
+        now = self.BASE + timedelta(minutes=10)
+        assert rule.is_due(self.BASE, now) is False
+
+
+#  TimeTriggerConfig 
+
+class TestTimeTriggerConfig:
+    def _future(self) -> datetime:
+        return datetime.now(timezone.utc) + timedelta(hours=1)
+
     def test_valid_config_passes_validation(self):
-        cfg = ScheduleTriggerConfig(cron_expression="0 9 * * *")
+        cfg = TimeTriggerConfig(trigger_at=self._future())
         cfg.validate_config()  # should not raise
 
     def test_defaults_timezone_to_utc(self):
-        cfg = ScheduleTriggerConfig(cron_expression="0 9 * * *")
+        cfg = TimeTriggerConfig(trigger_at=self._future())
         assert cfg.timezone == "UTC"
 
     def test_custom_timezone_stored(self):
-        cfg = ScheduleTriggerConfig(cron_expression="0 9 * * *", timezone="US/Eastern")
+        cfg = TimeTriggerConfig(trigger_at=self._future(), timezone="US/Eastern")
         assert cfg.timezone == "US/Eastern"
 
-    def test_empty_cron_raises_on_validate(self):
-        cfg = ScheduleTriggerConfig(cron_expression="")
-        with pytest.raises(ValueError, match="cron_expression is required"):
+    def test_naive_datetime_raises_on_validate(self):
+        cfg = TimeTriggerConfig(trigger_at=datetime(2026, 5, 1, 9, 0, 0))
+        with pytest.raises(ValueError, match="timezone-aware"):
             cfg.validate_config()
 
-    def test_type_discriminator_is_schedule(self):
-        cfg = ScheduleTriggerConfig(cron_expression="* * * * *")
-        assert cfg.type == TriggerType.SCHEDULE
+    def test_type_discriminator_is_time(self):
+        cfg = TimeTriggerConfig(trigger_at=self._future())
+        assert cfg.type == TriggerType.TIME
 
-    def test_trigger_id_auto_generated(self):
-        cfg1 = ScheduleTriggerConfig(cron_expression="* * * * *")
-        cfg2 = ScheduleTriggerConfig(cron_expression="* * * * *")
+    def test_trigger_id_auto_generated_and_unique(self):
+        cfg1 = TimeTriggerConfig(trigger_at=self._future())
+        cfg2 = TimeTriggerConfig(trigger_at=self._future())
         assert cfg1.trigger_id != cfg2.trigger_id
 
+    def test_recurrence_default_is_none(self):
+        cfg = TimeTriggerConfig(trigger_at=self._future())
+        assert cfg.recurrence is None
 
-# ── WebhookTriggerConfig ──────────────────────────────────────────────────────
+    def test_valid_recurrence_passes_validation(self):
+        rule = RecurrenceRule(frequency="daily", interval=2)
+        cfg = TimeTriggerConfig(trigger_at=self._future(), recurrence=rule)
+        cfg.validate_config()  # should not raise
+
+    def test_invalid_recurrence_fails_validation(self):
+        rule = RecurrenceRule(frequency="weekly")  # missing days_of_week
+        cfg = TimeTriggerConfig(trigger_at=self._future(), recurrence=rule)
+        with pytest.raises(ValueError, match="days_of_week is required"):
+            cfg.validate_config()
+
+
+#  WebhookTriggerConfig 
 
 class TestWebhookTriggerConfig:
     def test_valid_config_passes_validation(self):
         cfg = WebhookTriggerConfig(path="/hooks/my-workflow")
-        cfg.validate_config()  # should not raise
+        cfg.validate_config()
 
     def test_empty_path_raises(self):
         cfg = WebhookTriggerConfig(path="")
@@ -67,46 +197,116 @@ class TestWebhookTriggerConfig:
         cfg = WebhookTriggerConfig(path="/hooks/x")
         assert cfg.type == TriggerType.WEBHOOK
 
-    def test_optional_fields_default_to_empty_string(self):
+    def test_default_method_is_post(self):
+        cfg = WebhookTriggerConfig(path="/hooks/x")
+        assert cfg.method == "POST"
+
+    def test_invalid_method_raises(self):
+        cfg = WebhookTriggerConfig(path="/hooks/x", method="PURGE")
+        with pytest.raises(ValueError, match="Unsupported HTTP method"):
+            cfg.validate_config()
+
+    def test_optional_fields_default_to_empty(self):
         cfg = WebhookTriggerConfig(path="/hooks/x")
         assert cfg.secret_ref == ""
         assert cfg.event_filter == ""
+        assert cfg.header_filters == {}
 
     def test_optional_fields_stored_when_provided(self):
-        cfg = WebhookTriggerConfig(path="/hooks/x", secret_ref="my-secret", event_filter="push")
+        cfg = WebhookTriggerConfig(
+            path="/hooks/x",
+            secret_ref="my-secret",
+            event_filter="push",
+            header_filters={"X-Source": "github"},
+        )
         assert cfg.secret_ref == "my-secret"
         assert cfg.event_filter == "push"
+        assert cfg.header_filters == {"X-Source": "github"}
 
 
-# ── TriggerFactory ────────────────────────────────────────────────────────────
+#  TimeTriggerFactory 
 
-class TestScheduleTriggerFactory:
-    factory = ScheduleTriggerFactory()
+class TestTimeTriggerFactory:
+    factory = TimeTriggerFactory()
 
-    def test_creates_schedule_config(self):
-        spec = TriggerSpec(type=TriggerType.SCHEDULE, parameters={"cron": "0 8 * * MON"})
-        cfg = self.factory.create(spec)
-        assert isinstance(cfg, ScheduleTriggerConfig)
-        assert cfg.cron_expression == "0 8 * * MON"
-
-    def test_defaults_timezone_when_not_in_parameters(self):
-        spec = TriggerSpec(type=TriggerType.SCHEDULE, parameters={"cron": "0 8 * * *"})
-        cfg = self.factory.create(spec)
-        assert cfg.timezone == "UTC"
-
-    def test_passes_timezone_from_parameters(self):
+    def test_creates_time_config(self):
         spec = TriggerSpec(
-            type=TriggerType.SCHEDULE,
-            parameters={"cron": "0 8 * * *", "timezone": "Europe/Berlin"},
+            type=TriggerType.TIME,
+            parameters={"trigger_at": "2026-05-01T09:00:00+00:00"},
         )
         cfg = self.factory.create(spec)
-        assert cfg.timezone == "Europe/Berlin"
+        assert isinstance(cfg, TimeTriggerConfig)
+        assert cfg.trigger_at == datetime(2026, 5, 1, 9, 0, 0, tzinfo=timezone.utc)
 
-    def test_missing_cron_raises_value_error(self):
-        spec = TriggerSpec(type=TriggerType.SCHEDULE, parameters={})
-        with pytest.raises(ValueError, match="cron_expression is required"):
+    def test_no_recurrence_by_default(self):
+        spec = TriggerSpec(
+            type=TriggerType.TIME,
+            parameters={"trigger_at": "2026-05-01T09:00:00+00:00"},
+        )
+        cfg = self.factory.create(spec)
+        assert cfg.recurrence is None
+
+    def test_daily_recurrence_parsed(self):
+        spec = TriggerSpec(
+            type=TriggerType.TIME,
+            parameters={
+                "trigger_at": "2026-05-01T09:00:00+00:00",
+                "recurrence": {"frequency": "daily", "interval": 3},
+            },
+        )
+        cfg = self.factory.create(spec)
+        assert cfg.recurrence is not None
+        assert cfg.recurrence.frequency == RecurrenceFrequency.DAILY
+        assert cfg.recurrence.interval == 3
+
+    def test_weekly_recurrence_parsed(self):
+        spec = TriggerSpec(
+            type=TriggerType.TIME,
+            parameters={
+                "trigger_at": "2026-05-01T09:00:00+00:00",
+                "recurrence": {"frequency": "weekly", "days_of_week": [0, 4]},
+            },
+        )
+        cfg = self.factory.create(spec)
+        assert cfg.recurrence.days_of_week == [0, 4]
+
+    def test_custom_recurrence_parsed(self):
+        spec = TriggerSpec(
+            type=TriggerType.TIME,
+            parameters={
+                "trigger_at": "2026-05-01T09:00:00+00:00",
+                "recurrence": {"frequency": "custom", "cron_expression": "0 9 * * 1-5"},
+            },
+        )
+        cfg = self.factory.create(spec)
+        assert cfg.recurrence.cron_expression == "0 9 * * 1-5"
+
+    def test_missing_trigger_at_raises(self):
+        spec = TriggerSpec(type=TriggerType.TIME, parameters={})
+        with pytest.raises(ValueError, match="trigger_at is required"):
             self.factory.create(spec)
 
+    def test_naive_trigger_at_raises(self):
+        spec = TriggerSpec(
+            type=TriggerType.TIME,
+            parameters={"trigger_at": "2026-05-01T09:00:00"},
+        )
+        with pytest.raises(ValueError, match="timezone-aware"):
+            self.factory.create(spec)
+
+    def test_invalid_recurrence_raises(self):
+        spec = TriggerSpec(
+            type=TriggerType.TIME,
+            parameters={
+                "trigger_at": "2026-05-01T09:00:00+00:00",
+                "recurrence": {"frequency": "weekly"},  # missing days_of_week
+            },
+        )
+        with pytest.raises(ValueError, match="days_of_week is required"):
+            self.factory.create(spec)
+
+
+#  WebhookTriggerFactory 
 
 class TestWebhookTriggerFactory:
     factory = WebhookTriggerFactory()
@@ -117,32 +317,43 @@ class TestWebhookTriggerFactory:
         assert isinstance(cfg, WebhookTriggerConfig)
         assert cfg.path == "/hooks/gh"
 
+    def test_default_method_is_post(self):
+        spec = TriggerSpec(type=TriggerType.WEBHOOK, parameters={"path": "/hooks/gh"})
+        cfg = self.factory.create(spec)
+        assert cfg.method == "POST"
+
     def test_passes_optional_fields(self):
         spec = TriggerSpec(
             type=TriggerType.WEBHOOK,
-            parameters={"path": "/hooks/gh", "secret_ref": "gh-secret", "event_filter": "push"},
+            parameters={
+                "path": "/hooks/gh",
+                "secret_ref": "gh-secret",
+                "event_filter": "push",
+                "header_filters": {"X-Source": "github"},
+            },
         )
         cfg = self.factory.create(spec)
         assert cfg.secret_ref == "gh-secret"
         assert cfg.event_filter == "push"
+        assert cfg.header_filters == {"X-Source": "github"}
 
-    def test_missing_path_raises_value_error(self):
+    def test_missing_path_raises(self):
         spec = TriggerSpec(type=TriggerType.WEBHOOK, parameters={})
         with pytest.raises(ValueError, match="path is required"):
             self.factory.create(spec)
 
-    def test_path_without_slash_raises_value_error(self):
+    def test_path_without_slash_raises(self):
         spec = TriggerSpec(type=TriggerType.WEBHOOK, parameters={"path": "no-slash"})
         with pytest.raises(ValueError, match="path must start with /"):
             self.factory.create(spec)
 
 
-# ── TRIGGER_FACTORIES registry ────────────────────────────────────────────────
+#  TRIGGER_FACTORIES registry 
 
 class TestTriggerFactoriesRegistry:
-    def test_schedule_factory_is_registered(self):
-        assert TriggerType.SCHEDULE in TRIGGER_FACTORIES
-        assert isinstance(TRIGGER_FACTORIES[TriggerType.SCHEDULE], ScheduleTriggerFactory)
+    def test_time_factory_is_registered(self):
+        assert TriggerType.TIME in TRIGGER_FACTORIES
+        assert isinstance(TRIGGER_FACTORIES[TriggerType.TIME], TimeTriggerFactory)
 
     def test_webhook_factory_is_registered(self):
         assert TriggerType.WEBHOOK in TRIGGER_FACTORIES
@@ -153,71 +364,109 @@ class TestTriggerFactoriesRegistry:
             assert t in TRIGGER_FACTORIES, f"Missing factory for {t}"
 
 
-# ── JSON round-trip via discriminated union ───────────────────────────────────
+#  JSON round-trip 
 
 class TestTriggerConfigRoundTrip:
-    def test_schedule_config_serializes_and_restores(self):
+    def test_time_config_without_recurrence_roundtrips(self):
         from typing import Annotated, Union
         from pydantic import BaseModel, Field
 
-        # Use the same union that WorkflowDefinition uses
-        TriggerConfig = Annotated[
-            Union[ScheduleTriggerConfig, WebhookTriggerConfig],
+        TriggerConfigUnion = Annotated[
+            Union[TimeTriggerConfig, WebhookTriggerConfig],
             Field(discriminator="type"),
         ]
 
         class Wrapper(BaseModel):
-            trigger: TriggerConfig  # type: ignore[valid-type]
+            trigger: TriggerConfigUnion  # type: ignore[valid-type]
 
-        cfg = ScheduleTriggerConfig(cron_expression="0 9 * * *")
+        cfg = TimeTriggerConfig(trigger_at=datetime(2026, 5, 1, 9, 0, 0, tzinfo=timezone.utc))
         w = Wrapper(trigger=cfg)
         restored = Wrapper.model_validate(w.model_dump(mode="json"))
-        assert isinstance(restored.trigger, ScheduleTriggerConfig)
-        assert restored.trigger.cron_expression == "0 9 * * *"
+        assert isinstance(restored.trigger, TimeTriggerConfig)
+        assert restored.trigger.trigger_at == cfg.trigger_at
+        assert restored.trigger.recurrence is None
 
-    def test_webhook_config_serializes_and_restores(self):
+    def test_time_config_with_recurrence_roundtrips(self):
         from typing import Annotated, Union
         from pydantic import BaseModel, Field
 
-        TriggerConfig = Annotated[
-            Union[ScheduleTriggerConfig, WebhookTriggerConfig],
+        TriggerConfigUnion = Annotated[
+            Union[TimeTriggerConfig, WebhookTriggerConfig],
             Field(discriminator="type"),
         ]
 
         class Wrapper(BaseModel):
-            trigger: TriggerConfig  # type: ignore[valid-type]
+            trigger: TriggerConfigUnion  # type: ignore[valid-type]
 
-        cfg = WebhookTriggerConfig(path="/hooks/test")
+        rule = RecurrenceRule(frequency="weekly", days_of_week=[0, 4])
+        cfg = TimeTriggerConfig(
+            trigger_at=datetime(2026, 5, 1, 9, 0, 0, tzinfo=timezone.utc),
+            recurrence=rule,
+        )
+        w = Wrapper(trigger=cfg)
+        restored = Wrapper.model_validate(w.model_dump(mode="json"))
+        assert restored.trigger.recurrence is not None
+        assert restored.trigger.recurrence.days_of_week == [0, 4]
+
+    def test_webhook_config_roundtrips(self):
+        from typing import Annotated, Union
+        from pydantic import BaseModel, Field
+
+        TriggerConfigUnion = Annotated[
+            Union[TimeTriggerConfig, WebhookTriggerConfig],
+            Field(discriminator="type"),
+        ]
+
+        class Wrapper(BaseModel):
+            trigger: TriggerConfigUnion  # type: ignore[valid-type]
+
+        cfg = WebhookTriggerConfig(path="/hooks/test", method="POST")
         w = Wrapper(trigger=cfg)
         restored = Wrapper.model_validate(w.model_dump(mode="json"))
         assert isinstance(restored.trigger, WebhookTriggerConfig)
         assert restored.trigger.path == "/hooks/test"
 
 
-# ── Runtime evaluators ────────────────────────────────────────────────────────
+#  Runtime evaluators 
 
-class TestScheduleTriggerEvaluate:
-    def test_every_minute_cron_returns_true(self):
-        trigger = ScheduleTrigger()
-        cfg = ScheduleTriggerConfig(cron_expression="* * * * *")
-        result = asyncio.run(trigger.evaluate({"config": cfg}))
-        assert result is True
+class TestTimeTriggerEvaluate:
+    def test_past_time_one_shot_returns_true(self):
+        trigger = TimeTrigger()
+        cfg = TimeTriggerConfig(
+            trigger_at=datetime.now(timezone.utc) - timedelta(seconds=1)
+        )
+        assert asyncio.run(trigger.evaluate({"config": cfg})) is True
 
-    def test_evaluate_returns_bool(self):
-        trigger = ScheduleTrigger()
-        cfg = ScheduleTriggerConfig(cron_expression="* * * * *")
-        result = asyncio.run(trigger.evaluate({"config": cfg}))
-        assert isinstance(result, bool)
+    def test_future_time_one_shot_returns_false(self):
+        trigger = TimeTrigger()
+        cfg = TimeTriggerConfig(
+            trigger_at=datetime.now(timezone.utc) + timedelta(hours=1)
+        )
+        assert asyncio.run(trigger.evaluate({"config": cfg})) is False
 
-    def test_schema_id_is_schedule(self):
-        assert ScheduleTrigger.schema.id == "schedule"
+    def test_recurring_daily_due_returns_true(self):
+        trigger = TimeTrigger()
+        start = datetime.now(timezone.utc) - timedelta(days=1)
+        rule = RecurrenceRule(frequency="daily", interval=1)
+        cfg = TimeTriggerConfig(trigger_at=start, recurrence=rule)
+        # now is exactly 1 day after start → should be due
+        assert asyncio.run(trigger.evaluate({"config": cfg})) is True
+
+    def test_recurring_before_start_returns_false(self):
+        trigger = TimeTrigger()
+        start = datetime.now(timezone.utc) + timedelta(hours=1)
+        rule = RecurrenceRule(frequency="daily", interval=1)
+        cfg = TimeTriggerConfig(trigger_at=start, recurrence=rule)
+        assert asyncio.run(trigger.evaluate({"config": cfg})) is False
+
+    def test_schema_id_is_time(self):
+        assert TimeTrigger.schema.id == "time"
 
 
 class TestWebhookTriggerEvaluate:
     def test_always_returns_true(self):
         trigger = WebhookTrigger()
-        result = asyncio.run(trigger.evaluate({}))
-        assert result is True
+        assert asyncio.run(trigger.evaluate({})) is True
 
     def test_schema_id_is_webhook(self):
         assert WebhookTrigger.schema.id == "webhook"

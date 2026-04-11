@@ -4,7 +4,8 @@ from uuid import UUID
 from pydantic import BaseModel
 
 from app.action.action import ActionStepFactory, StepSpec
-from app.trigger.trigger import TRIGGER_FACTORIES, TriggerSpec
+from app.trigger.trigger import TriggerSpec
+from app.trigger.triggerFactories import TRIGGER_FACTORIES
 from app.workflow.workflow import IWorkflowBuilder, WorkflowDefinition, WorkflowDefinitionBuilder
 
 

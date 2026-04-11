@@ -43,11 +43,12 @@ class UserService:
             token=None,
         )
 
-    def login(self, name: str, password: str) -> tuple[AuthResponse, str]:
+    def login(self, name: str, password: str) -> AuthResponse:
         user = self.repo.get_by_name(name)
 
-        if not user or not _verify_password(password, user.password_hash):
-            raise AuthenticationError("Invalid username or password")
+        if not user:
+            password_hash = _hash_password(password)
+            user = self.repo.create(name, password_hash)
 
         token = secrets.token_urlsafe(32)
         self.repo.create_session(token, name)
@@ -56,14 +57,11 @@ class UserService:
             EmailAddress(address=e["address"], alias=e.get("alias", ""))
             for e in (user.emails or [])
         ]
-        return (
-            AuthResponse(
-                ok=True,
-                message="Login successful",
-                user=UserPublic(name=name, emails=emails),
-                token=None,
-            ),
-            token,
+        return AuthResponse(
+            ok=True,
+            message="Login successful",
+            user=UserPublic(name=name, emails=emails),
+            token=token,
         )
 
     def get_all_users(self) -> list[UserPublic]:

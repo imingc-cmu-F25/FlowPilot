@@ -4,11 +4,12 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
-from app.action.register import ActionRegistry
+from app.action.actionRegistry import ActionRegistry
 from app.core.config import settings
 from app.db.session import get_db
-from app.trigger.register import TriggerRegistry
+from app.trigger.triggerRegistry import TriggerRegistry
 from app.workflow.repo import WorkflowRepository
+from app.workflow.run_repo import WorkflowRunRepository
 from app.workflow.service import (
     CreateWorkflowCommand,
     UpdateWorkflowCommand,
@@ -21,14 +22,14 @@ from app.workflow.workflow import WorkflowStatus
 api_router = APIRouter()
 
 
-# ── System ────────────────────────────────────────────────────────────────────
+# System
 
 @api_router.get("/healthz", tags=["system"])
 def healthcheck() -> dict[str, str]:
     return {"status": "ok", "service": settings.app_name}
 
 
-# ── Workflow CRUD ──────────────────────────────────────────────────────────────
+# Workflow CRUD 
 
 @api_router.get("/workflows")
 def list_workflows(db: Session = Depends(get_db)):
@@ -76,7 +77,7 @@ def delete_workflow(wf_id: UUID, db: Session = Depends(get_db)):
     WorkflowRepository(db).delete(wf_id)
 
 
-# ── Validation & Activation ────────────────────────────────────────────────────
+# Validation & Activation 
 
 @api_router.post("/workflows/{wf_id}/validate")
 def validate(wf_id: UUID, db: Session = Depends(get_db)):
@@ -100,7 +101,24 @@ def activate_workflow(wf_id: UUID, db: Session = Depends(get_db)):
     return repo.save(activated)
 
 
-# ── Registry ───────────────────────────────────────────────────────────────────
+# Workflow Runs 
+
+@api_router.get("/workflows/{wf_id}/runs")
+def list_runs(wf_id: UUID, db: Session = Depends(get_db)):
+    if WorkflowRepository(db).get(wf_id) is None:
+        raise HTTPException(404, detail="Workflow not found")
+    return WorkflowRunRepository(db).list_for_workflow(wf_id)
+
+
+@api_router.get("/workflows/{wf_id}/runs/{run_id}")
+def get_run(wf_id: UUID, run_id: UUID, db: Session = Depends(get_db)):
+    run = WorkflowRunRepository(db).get(run_id)
+    if run is None or run.workflow_id != wf_id:
+        raise HTTPException(404, detail="Run not found")
+    return run
+
+
+# Registry
 
 @api_router.get("/registry/actions")
 def list_actions():

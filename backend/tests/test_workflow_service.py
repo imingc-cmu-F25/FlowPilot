@@ -10,13 +10,11 @@ from app.workflow.validator import validate_workflow
 from app.workflow.workflow import WorkflowDefinitionBuilder, WorkflowStatus
 
 
-# ── Shared helpers ────────────────────────────────────────────────────────────
-
 def make_service() -> WorkflowService:
     return WorkflowService(WorkflowDefinitionBuilder())
 
 
-SCHEDULE_SPEC = TriggerSpec(type=TriggerType.SCHEDULE, parameters={"cron": "0 9 * * *"})
+TIME_SPEC = TriggerSpec(type=TriggerType.TIME, parameters={"trigger_at": "2026-05-01T09:00:00+00:00"})
 WEBHOOK_SPEC = TriggerSpec(type=TriggerType.WEBHOOK, parameters={"path": "/hooks/test"})
 
 EMAIL_STEP = StepSpec(
@@ -42,13 +40,13 @@ def base_create_cmd(**overrides) -> CreateWorkflowCommand:
     defaults = dict(
         owner_id=uuid4(),
         name="My Workflow",
-        trigger=SCHEDULE_SPEC,
+        trigger=TIME_SPEC,
         steps=[EMAIL_STEP],
     )
     return CreateWorkflowCommand(**{**defaults, **overrides})
 
 
-# ── WorkflowService.create_workflow ───────────────────────────────────────────
+#  WorkflowService.create_workflow 
 
 class TestWorkflowServiceCreate:
     def test_returns_workflow_definition(self):
@@ -62,8 +60,8 @@ class TestWorkflowServiceCreate:
         assert wf.owner_id == owner
 
     def test_trigger_type_stored(self):
-        wf = make_service().create_workflow(base_create_cmd(trigger=SCHEDULE_SPEC))
-        assert wf.trigger.type == TriggerType.SCHEDULE
+        wf = make_service().create_workflow(base_create_cmd(trigger=TIME_SPEC))
+        assert wf.trigger.type == TriggerType.TIME
 
     def test_webhook_trigger_stored(self):
         wf = make_service().create_workflow(base_create_cmd(trigger=WEBHOOK_SPEC))
@@ -97,7 +95,7 @@ class TestWorkflowServiceCreate:
         assert len(wf.steps) == 2
 
 
-# ── WorkflowService.update_workflow ───────────────────────────────────────────
+#  WorkflowService.update_workflow 
 
 class TestWorkflowServiceUpdate:
     def _create(self, **overrides) -> object:
@@ -125,7 +123,7 @@ class TestWorkflowServiceUpdate:
         assert updated.trigger.type == wf.trigger.type
 
     def test_update_trigger_changes_type(self):
-        wf = self._create(trigger=SCHEDULE_SPEC)
+        wf = self._create(trigger=TIME_SPEC)
         updated = make_service().update_workflow(wf, UpdateWorkflowCommand(trigger=WEBHOOK_SPEC))
         assert updated.trigger.type == TriggerType.WEBHOOK
 
@@ -148,7 +146,7 @@ class TestWorkflowServiceUpdate:
         assert updated.workflow_id == wf.workflow_id
 
 
-# ── validate_workflow ─────────────────────────────────────────────────────────
+#  validate_workflow 
 
 class TestValidateWorkflow:
     def _valid_wf(self):
@@ -184,9 +182,10 @@ class TestValidateWorkflow:
         errors = validate_workflow(wf)
         assert any("Bad" in e for e in errors)
 
-    def test_trigger_with_empty_cron_reported(self):
-        from app.trigger.trigger import ScheduleTriggerConfig
-        bad_trigger = ScheduleTriggerConfig(cron_expression="")
+    def test_trigger_with_naive_datetime_reported(self):
+        from datetime import datetime
+        from app.trigger.trigger import TimeTriggerConfig
+        bad_trigger = TimeTriggerConfig(trigger_at=datetime(2026, 5, 1, 9, 0, 0))  # no tzinfo
         wf = self._valid_wf().model_copy(update={"trigger": bad_trigger})
         errors = validate_workflow(wf)
         assert any("Trigger" in e for e in errors)

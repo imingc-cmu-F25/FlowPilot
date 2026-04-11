@@ -1,4 +1,6 @@
-from app.trigger.trigger import BaseTrigger, TimeTrigger, WebhookTrigger
+from app.trigger.trigger import BaseTrigger
+from app.trigger.timeTrigger import TimeTrigger
+from app.trigger.webhookTrigger import WebhookTrigger
 
 
 class TriggerRegistry:

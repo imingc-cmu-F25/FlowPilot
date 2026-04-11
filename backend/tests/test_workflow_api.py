@@ -8,7 +8,7 @@ from app.main import app
 
 client = TestClient(app)
 
-# ── Shared payload builders ───────────────────────────────────────────────────
+#  Shared payload builders 
 
 def schedule_payload(**overrides) -> dict:
     base = {
@@ -16,8 +16,8 @@ def schedule_payload(**overrides) -> dict:
         "name": "Test Workflow",
         "description": "A test",
         "trigger": {
-            "type": "schedule",
-            "parameters": {"cron": "0 9 * * *"},
+            "type": "time",
+            "parameters": {"trigger_at": "2026-05-01T09:00:00+00:00"},
         },
         "steps": [
             {
@@ -54,7 +54,7 @@ def create_workflow(**overrides) -> dict:
     return r.json()
 
 
-# ── POST /workflows ───────────────────────────────────────────────────────────
+#  POST /workflows 
 
 class TestCreateWorkflow:
     def test_returns_201(self):
@@ -75,7 +75,7 @@ class TestCreateWorkflow:
 
     def test_response_trigger_type_matches(self):
         data = create_workflow()
-        assert data["trigger"]["type"] == "schedule"
+        assert data["trigger"]["type"] == "time"
 
     def test_webhook_trigger_stored(self):
         r = client.post("/api/workflows", json=webhook_payload())
@@ -101,7 +101,7 @@ class TestCreateWorkflow:
         assert r.status_code == 422
 
 
-# ── GET /workflows ────────────────────────────────────────────────────────────
+#  GET /workflows 
 
 class TestListWorkflows:
     def test_empty_list_initially(self):
@@ -123,7 +123,7 @@ class TestListWorkflows:
         assert isinstance(r.json(), list)
 
 
-# ── GET /workflows/{wf_id} ────────────────────────────────────────────────────
+#  GET /workflows/{wf_id} 
 
 class TestGetWorkflow:
     def test_returns_workflow_by_id(self):
@@ -150,7 +150,7 @@ class TestGetWorkflow:
         assert len(r.json()["steps"]) == 1
 
 
-# ── PUT /workflows/{wf_id} ────────────────────────────────────────────────────
+#  PUT /workflows/{wf_id} 
 
 class TestUpdateWorkflow:
     def test_update_name(self):
@@ -187,7 +187,7 @@ class TestUpdateWorkflow:
         assert r.json()["trigger"]["type"] == "webhook"
 
 
-# ── DELETE /workflows/{wf_id} ─────────────────────────────────────────────────
+#  DELETE /workflows/{wf_id} 
 
 class TestDeleteWorkflow:
     def test_returns_204(self):
@@ -209,7 +209,7 @@ class TestDeleteWorkflow:
         assert r.status_code == 204
 
 
-# ── POST /workflows/{wf_id}/validate ─────────────────────────────────────────
+#  POST /workflows/{wf_id}/validate 
 
 class TestValidateEndpoint:
     def test_valid_workflow_returns_valid_true(self):
@@ -231,7 +231,7 @@ class TestValidateEndpoint:
         assert "errors" in r.json()
 
 
-# ── POST /workflows/{wf_id}/activate ─────────────────────────────────────────
+#  POST /workflows/{wf_id}/activate 
 
 class TestActivateEndpoint:
     def test_valid_workflow_activates_successfully(self):
@@ -255,7 +255,7 @@ class TestActivateEndpoint:
         assert r.json()["status"] == "active"
 
 
-# ── GET /registry/actions ─────────────────────────────────────────────────────
+#  GET /registry/actions 
 
 class TestRegistryEndpoints:
     def test_list_actions_returns_200(self):
@@ -276,10 +276,10 @@ class TestRegistryEndpoints:
         r = client.get("/api/registry/triggers")
         assert r.status_code == 200
 
-    def test_list_triggers_contains_schedule(self):
+    def test_list_triggers_contains_time(self):
         r = client.get("/api/registry/triggers")
         ids = [t["id"] for t in r.json()]
-        assert "schedule" in ids
+        assert "time" in ids
 
     def test_list_triggers_contains_webhook(self):
         r = client.get("/api/registry/triggers")

@@ -1,4 +1,4 @@
-from app.db.models import UserORM, UserSessionORM
+from app.db.schema import UserORM, UserSessionORM
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 

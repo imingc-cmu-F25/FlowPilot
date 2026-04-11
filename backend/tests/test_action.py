@@ -13,10 +13,8 @@ from app.action.action import (
     HttpRequestAction,
     StepSpec,
 )
-from app.action.register import ActionRegistry
+from app.action.actionRegistry import ActionRegistry
 
-
-# ── HttpRequestActionStep ─────────────────────────────────────────────────────
 
 class TestHttpRequestActionStep:
     def test_valid_step_passes_validation(self):
@@ -58,9 +56,10 @@ class TestHttpRequestActionStep:
         assert s1.step_id != s2.step_id
 
 
-# ── SendEmailActionStep ───────────────────────────────────────────────────────
-
 class TestSendEmailActionStep:
+    """
+    Tests for SendEmailActionStep validation logic, including required fields and action_type discriminator.
+    """
     def test_valid_step_passes_validation(self):
         step = SendEmailActionStep(
             name="Send",
@@ -72,6 +71,9 @@ class TestSendEmailActionStep:
         step.validate_step()  # should not raise
 
     def test_empty_to_template_raises(self):
+        """
+        Empty to_template causes validation to fail.
+        """
         step = SendEmailActionStep(
             name="Send", step_order=0, to_template="", subject_template="Hi", body_template="x"
         )
@@ -79,6 +81,9 @@ class TestSendEmailActionStep:
             step.validate_step()
 
     def test_empty_subject_template_raises(self):
+        """
+        Empty subject_template causes validation to fail.
+        """
         step = SendEmailActionStep(
             name="Send",
             step_order=0,
@@ -90,16 +95,20 @@ class TestSendEmailActionStep:
             step.validate_step()
 
     def test_action_type_discriminator(self):
+        """
+        The action_type discriminator correctly identifies SendEmailActionStep.
+        """
         step = SendEmailActionStep(
             name="x", step_order=0, to_template="a@b.com", subject_template="s", body_template="b"
         )
         assert step.action_type == ActionType.SEND_EMAIL
 
 
-# ── CalendarCreateEventActionStep ─────────────────────────────────────────────
-
 class TestCalendarCreateEventActionStep:
     def test_valid_step_passes_validation(self):
+        """
+A CalendarCreateEventActionStep with all required fields should pass validation.
+        """
         step = CalendarCreateEventActionStep(
             name="Create event",
             step_order=0,
@@ -111,6 +120,9 @@ class TestCalendarCreateEventActionStep:
         step.validate_step()  # should not raise
 
     def test_empty_calendar_id_raises(self):
+        """
+        Empty calendar_id causes validation to fail.
+        """
         step = CalendarCreateEventActionStep(
             name="x",
             step_order=0,
@@ -123,6 +135,9 @@ class TestCalendarCreateEventActionStep:
             step.validate_step()
 
     def test_empty_title_template_raises(self):
+        """
+        Empty title_template causes validation to fail.
+        """
         step = CalendarCreateEventActionStep(
             name="x",
             step_order=0,
@@ -135,6 +150,9 @@ class TestCalendarCreateEventActionStep:
             step.validate_step()
 
     def test_action_type_discriminator(self):
+        """
+        The action_type discriminator correctly identifies CalendarCreateEventActionStep.
+        """
         step = CalendarCreateEventActionStep(
             name="x",
             step_order=0,
@@ -146,10 +164,11 @@ class TestCalendarCreateEventActionStep:
         assert step.action_type == ActionType.CALENDAR_CREATE_EVENT
 
 
-# ── ActionStepFactory ─────────────────────────────────────────────────────────
-
 class TestActionStepFactory:
     def test_creates_http_request_step(self):
+        """
+        A HttpRequestActionStep with all required fields should pass validation.
+        """
         spec = StepSpec(
             action_type=ActionType.HTTP_REQUEST,
             name="Call",
@@ -161,6 +180,9 @@ class TestActionStepFactory:
         assert step.url_template == "https://api.example.com"
 
     def test_creates_send_email_step(self):
+        """
+        A SendEmailActionStep with all required fields should pass validation.
+        """
         spec = StepSpec(
             action_type=ActionType.SEND_EMAIL,
             name="Email",
@@ -216,9 +238,7 @@ class TestActionStepFactory:
         )
         with pytest.raises(ValueError, match="url_template is required"):
             ActionStepFactory.create(spec)
-
-
-# ── ActionStep JSON round-trip ────────────────────────────────────────────────
+        
 
 class TestActionStepRoundTrip:
     def test_http_step_serializes_and_restores(self):
@@ -246,8 +266,6 @@ class TestActionStepRoundTrip:
         assert restored.steps[0].url_template == "https://a.com"
 
 
-# ── ActionRegistry ────────────────────────────────────────────────────────────
-
 class TestActionRegistry:
     def test_send_email_is_registered(self):
         schema = ActionRegistry.get("send_email").schema
@@ -268,14 +286,21 @@ class TestActionRegistry:
             ActionRegistry.get("does_not_exist")
 
 
-# ── BaseAction executors (smoke tests) ────────────────────────────────────────
-
 class TestSendEmailAction:
     def test_execute_returns_sent_status(self):
-        action = SendEmailAction()
-        result = asyncio.run(action.execute({"to": "a@b.com", "subject": "Hi", "body": "Hello"}))
+        from unittest.mock import MagicMock, patch
+
+        mock_smtp = MagicMock()
+        mock_smtp.__enter__ = MagicMock(return_value=mock_smtp)
+        mock_smtp.__exit__ = MagicMock(return_value=False)
+
+        with patch("smtplib.SMTP", return_value=mock_smtp):
+            action = SendEmailAction()
+            result = asyncio.run(action.execute({"to": "a@b.com", "subject": "Hi", "body": "Hello"}))
+
         assert result["status"] == "sent"
         assert result["to"] == "a@b.com"
+        mock_smtp.send_message.assert_called_once()
 
     def test_schema_connector_is_smtp(self):
         assert SendEmailAction.schema.connector_id == "smtp"
