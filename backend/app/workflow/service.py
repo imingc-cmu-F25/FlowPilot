@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from pydantic import BaseModel
 
@@ -50,7 +50,7 @@ class WorkflowService:
         self, existing: WorkflowDefinition, cmd: UpdateWorkflowCommand
     ) -> WorkflowDefinition:
         """Apply partial updates on top of the existing definition."""
-        updates: dict = {"updated_at": datetime.now(timezone.utc)}
+        updates: dict = {"updated_at": datetime.now(UTC)}
 
         if cmd.name is not None:
             updates["name"] = cmd.name

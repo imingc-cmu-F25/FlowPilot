@@ -1,6 +1,6 @@
 """WorkflowRunRepository — persists WorkflowRun records to workflow_runs table."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import UUID
 
 from sqlalchemy.orm import Session
@@ -38,7 +38,7 @@ class WorkflowRunRepository:
         if orm is None:
             return None
         orm.status = RunStatus.RUNNING
-        orm.started_at = datetime.now(timezone.utc)
+        orm.started_at = datetime.now(UTC)
         self._db.flush()
         return self._to_domain(orm)
 
@@ -48,7 +48,7 @@ class WorkflowRunRepository:
         if orm is None:
             return None
         orm.status = RunStatus.SUCCESS
-        orm.finished_at = datetime.now(timezone.utc)
+        orm.finished_at = datetime.now(UTC)
         orm.output = output
         self._db.flush()
         return self._to_domain(orm)
@@ -59,7 +59,7 @@ class WorkflowRunRepository:
         if orm is None:
             return None
         orm.status = RunStatus.FAILED
-        orm.finished_at = datetime.now(timezone.utc)
+        orm.finished_at = datetime.now(UTC)
         orm.error = error
         self._db.flush()
         return self._to_domain(orm)

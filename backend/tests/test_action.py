@@ -1,16 +1,16 @@
 """Tests for action step configs, factory, and runtime executors."""
 
 import asyncio
-import pytest
 
+import pytest
 from app.action.action import (
     ActionStepFactory,
     ActionType,
     CalendarCreateEventActionStep,
+    HttpRequestAction,
     HttpRequestActionStep,
     SendEmailAction,
     SendEmailActionStep,
-    HttpRequestAction,
     StepSpec,
 )
 from app.action.actionRegistry import ActionRegistry
@@ -35,7 +35,9 @@ class TestHttpRequestActionStep:
             step.validate_step()
 
     def test_invalid_method_raises(self):
-        step = HttpRequestActionStep(name="x", step_order=0, url_template="https://x.com", method="PURGE")
+        step = HttpRequestActionStep(
+            name="x", step_order=0, url_template="https://x.com", method="PURGE"
+        )
         with pytest.raises(ValueError, match="Unsupported HTTP method"):
             step.validate_step()
 
@@ -58,8 +60,10 @@ class TestHttpRequestActionStep:
 
 class TestSendEmailActionStep:
     """
-    Tests for SendEmailActionStep validation logic, including required fields and action_type discriminator.
+    Tests for SendEmailActionStep validation logic, including required fields
+    and action_type discriminator.
     """
+
     def test_valid_step_passes_validation(self):
         step = SendEmailActionStep(
             name="Send",
@@ -242,11 +246,12 @@ class TestActionStepFactory:
 
 class TestActionStepRoundTrip:
     def test_http_step_serializes_and_restores(self):
-        from typing import Annotated, Union
+        from typing import Annotated
+
         from pydantic import BaseModel, Field
 
         ActionStepUnion = Annotated[
-            Union[HttpRequestActionStep, SendEmailActionStep, CalendarCreateEventActionStep],
+            HttpRequestActionStep | SendEmailActionStep | CalendarCreateEventActionStep,
             Field(discriminator="action_type"),
         ]
 
@@ -256,7 +261,11 @@ class TestActionStepRoundTrip:
         steps = [
             HttpRequestActionStep(name="A", step_order=0, url_template="https://a.com"),
             SendEmailActionStep(
-                name="B", step_order=1, to_template="x@y.com", subject_template="s", body_template="b"
+                name="B",
+                step_order=1,
+                to_template="x@y.com",
+                subject_template="s",
+                body_template="b",
             ),
         ]
         w = Wrapper(steps=steps)
@@ -296,7 +305,9 @@ class TestSendEmailAction:
 
         with patch("smtplib.SMTP", return_value=mock_smtp):
             action = SendEmailAction()
-            result = asyncio.run(action.execute({"to": "a@b.com", "subject": "Hi", "body": "Hello"}))
+            result = asyncio.run(
+                action.execute({"to": "a@b.com", "subject": "Hi", "body": "Hello"})
+            )
 
         assert result["status"] == "sent"
         assert result["to"] == "a@b.com"

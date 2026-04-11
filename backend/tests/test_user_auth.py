@@ -27,25 +27,23 @@ def test_login_success_returns_auth_response_and_token_tuple() -> None:
     r = client.post("/api/users/login", json={"name": "carol", "password": "pw"})
     assert r.status_code == 200
     data = r.json()
-    assert isinstance(data, list)
-    assert data[0]["ok"] is True
-    assert data[0]["message"] == "Login successful"
-    assert data[0]["user"] == {"name": "carol", "emails": []}
-    assert data[0]["token"] is None
-    assert isinstance(data[1], str)
-    assert data[1]
+    assert data["ok"] is True
+    assert data["message"] == "Login successful"
+    assert data["user"] == {"name": "carol", "emails": []}
+    assert isinstance(data["token"], str)
+    assert data["token"]
 
 
 def test_login_wrong_password_returns_400() -> None:
     client.post("/api/users/register", json={"name": "dave", "password": "right"})
     r = client.post("/api/users/login", json={"name": "dave", "password": "wrong"})
-    assert r.status_code == 400
+    assert r.status_code == 401
     assert r.json()["detail"] == "Invalid username or password"
 
 
 def test_login_unknown_user_returns_400() -> None:
     r = client.post("/api/users/login", json={"name": "nobody", "password": "x"})
-    assert r.status_code == 400
+    assert r.status_code == 401
     assert r.json()["detail"] == "Invalid username or password"
 
 

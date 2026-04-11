@@ -1,9 +1,9 @@
 from typing import Literal
+from uuid import UUID, uuid4
+
 from pydantic import BaseModel, Field
-from uuid import uuid4, UUID
 
-from app.action.base import ActionType, BaseAction
-
+from app.action.base import ActionType
 
 
 class CalendarActionStep(BaseModel):

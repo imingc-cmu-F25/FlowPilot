@@ -4,24 +4,24 @@ action.py — public facade for the action module.
 All code should import from here. Sub-modules import from base.py only.
 """
 
-from typing import Annotated, Union
+from typing import Annotated
 
 from pydantic import Field
 
 # Re-export base types so callers only need `from app.action.action import ...`
 from app.action.base import ActionSchema, ActionType, BaseAction, StepSpec  # noqa: F401
+from app.action.calendarAction import CalendarActionStep  # noqa: F401
 
 # Concrete step models (each imports from base.py — no circular dependency)
 from app.action.httpRequestAction import HttpRequestAction, HttpRequestActionStep  # noqa: F401
 from app.action.sendEmailAction import SendEmailAction, SendEmailActionStep  # noqa: F401
-from app.action.calendarAction import CalendarActionStep  # noqa: F401
 
 # Alias to match original name used in tests
 CalendarCreateEventActionStep = CalendarActionStep
 
 # Discriminated union — used as WorkflowDefinition.steps element type
 ActionStep = Annotated[
-    Union[HttpRequestActionStep, SendEmailActionStep, CalendarActionStep],
+    HttpRequestActionStep | SendEmailActionStep | CalendarActionStep,
     Field(discriminator="action_type"),
 ]
 

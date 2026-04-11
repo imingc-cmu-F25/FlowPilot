@@ -1,14 +1,14 @@
 from abc import ABC, abstractmethod
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import StrEnum
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field
 
-from app.action.action import ActionStep, StepSpec, ActionStepFactory
+from app.action.action import ActionStep, ActionStepFactory, StepSpec
 from app.trigger.trigger import TriggerSpec
-from app.trigger.triggerFactories import TRIGGER_FACTORIES
 from app.trigger.triggerConfig import TriggerConfig
+from app.trigger.triggerFactories import TRIGGER_FACTORIES
 
 
 class WorkflowStatus(StrEnum):
@@ -33,8 +33,8 @@ class WorkflowDefinition(BaseModel):
     status: WorkflowStatus = WorkflowStatus.DRAFT
     trigger: TriggerConfig
     steps: list[ActionStep] = []
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 # Builder interface
@@ -81,8 +81,8 @@ class WorkflowDefinitionBuilder(IWorkflowBuilder):
             "steps": [],
             "enabled": False,
             "status": WorkflowStatus.DRAFT,
-            "created_at": datetime.now(timezone.utc),
-            "updated_at": datetime.now(timezone.utc),
+            "created_at": datetime.now(UTC),
+            "updated_at": datetime.now(UTC),
         }
 
     def set_metadata(self, name: str, description: str = "") -> None:

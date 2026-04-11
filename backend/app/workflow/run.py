@@ -1,6 +1,6 @@
 """WorkflowRun domain model — represents a single execution of a workflow."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import StrEnum
 from uuid import UUID, uuid4
 
@@ -20,7 +20,7 @@ class WorkflowRun(BaseModel):
     status: RunStatus = RunStatus.PENDING
     trigger_type: str                                        # "time" or "webhook"
     triggered_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc)
+        default_factory=lambda: datetime.now(UTC)
     )
     started_at: datetime | None = None
     finished_at: datetime | None = None

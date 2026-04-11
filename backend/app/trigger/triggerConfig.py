@@ -1,12 +1,11 @@
 from datetime import datetime
-from typing import Annotated, Literal, Union
+from typing import Annotated, Literal
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field
 
-from app.trigger.trigger import TriggerType
 from app.trigger.recurrence import RecurrenceRule
-
+from app.trigger.trigger import TriggerType
 
 
 class TimeTriggerConfig(BaseModel):
@@ -56,6 +55,6 @@ class WebhookTriggerConfig(BaseModel):
 
 # Discriminated union used as WorkflowDefinition.trigger
 TriggerConfig = Annotated[
-    Union[TimeTriggerConfig, WebhookTriggerConfig],
+    TimeTriggerConfig | WebhookTriggerConfig,
     Field(discriminator="type"),
 ]

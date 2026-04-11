@@ -17,7 +17,9 @@ class WorkflowRunORM(Base):
         nullable=False,
         index=True,
     )
-    status: Mapped[str] = mapped_column(String(32), nullable=False)   # pending/running/success/failed
+    status: Mapped[str] = mapped_column(
+        String(32), nullable=False
+    )  # pending/running/success/failed
     trigger_type: Mapped[str] = mapped_column(String(64), nullable=False)
     triggered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

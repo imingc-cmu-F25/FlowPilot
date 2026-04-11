@@ -47,8 +47,10 @@ class UserService:
         user = self.repo.get_by_name(name)
 
         if not user:
-            password_hash = _hash_password(password)
-            user = self.repo.create(name, password_hash)
+            raise AuthenticationError("Invalid username or password")
+
+        if not _verify_password(password, user.password_hash):
+            raise AuthenticationError("Invalid username or password")
 
         token = secrets.token_urlsafe(32)
         self.repo.create_session(token, name)

@@ -54,7 +54,12 @@ def _migrate_workflow_owner_column() -> None:
             ))
             conn.execute(text("ALTER TABLE workflows DROP COLUMN owner_id"))
         elif engine.dialect.name == "sqlite":
-            conn.execute(text("ALTER TABLE workflows ADD COLUMN owner_name TEXT NOT NULL DEFAULT 'unknown'"))
+            conn.execute(
+                text(
+                    "ALTER TABLE workflows ADD COLUMN owner_name TEXT "
+                    "NOT NULL DEFAULT 'unknown'"
+                )
+            )
             # SQLite can't drop columns before 3.35; owner_id becomes dead weight
 
 

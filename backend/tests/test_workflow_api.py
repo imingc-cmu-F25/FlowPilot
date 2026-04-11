@@ -2,17 +2,30 @@
 
 from uuid import uuid4
 
+import pytest
+from app.main import app
 from fastapi.testclient import TestClient
 
-from app.main import app
-
 client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def ensure_owner_user() -> None:
+    response = client.post(
+        "/api/users/register",
+        json={
+            "name": "test-owner",
+            "password": "password123",
+            "email": "test-owner@example.com",
+        },
+    )
+    assert response.status_code in (200, 409)
 
 #  Shared payload builders 
 
 def schedule_payload(**overrides) -> dict:
     base = {
-        "owner_id": str(uuid4()),
+        "owner_name": "test-owner",
         "name": "Test Workflow",
         "description": "A test",
         "trigger": {

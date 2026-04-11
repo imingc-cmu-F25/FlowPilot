@@ -1,9 +1,9 @@
 from abc import ABC, abstractmethod
 from datetime import datetime
 
+from app.trigger.recurrence import RecurrenceRule
 from app.trigger.trigger import TriggerSpec, TriggerType
 from app.trigger.triggerConfig import TimeTriggerConfig, WebhookTriggerConfig
-from app.trigger.recurrence import RecurrenceRule
 
 
 class TriggerFactory(ABC):

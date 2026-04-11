@@ -1,8 +1,5 @@
 """Tests for WorkflowService (Director) and WorkflowValidator."""
 
-import pytest
-from uuid import uuid4
-
 from app.action.action import ActionType, StepSpec
 from app.trigger.trigger import TriggerSpec, TriggerType
 from app.workflow.service import CreateWorkflowCommand, UpdateWorkflowCommand, WorkflowService
@@ -14,7 +11,10 @@ def make_service() -> WorkflowService:
     return WorkflowService(WorkflowDefinitionBuilder())
 
 
-TIME_SPEC = TriggerSpec(type=TriggerType.TIME, parameters={"trigger_at": "2026-05-01T09:00:00+00:00"})
+TIME_SPEC = TriggerSpec(
+    type=TriggerType.TIME,
+    parameters={"trigger_at": "2026-05-01T09:00:00+00:00"},
+)
 WEBHOOK_SPEC = TriggerSpec(type=TriggerType.WEBHOOK, parameters={"path": "/hooks/test"})
 
 EMAIL_STEP = StepSpec(
@@ -38,7 +38,7 @@ HTTP_STEP = StepSpec(
 
 def base_create_cmd(**overrides) -> CreateWorkflowCommand:
     defaults = dict(
-        owner_id=uuid4(),
+        owner_name="test-owner",
         name="My Workflow",
         trigger=TIME_SPEC,
         steps=[EMAIL_STEP],
@@ -54,10 +54,10 @@ class TestWorkflowServiceCreate:
         wf = svc.create_workflow(base_create_cmd())
         assert wf.name == "My Workflow"
 
-    def test_owner_id_set_correctly(self):
-        owner = uuid4()
-        wf = make_service().create_workflow(base_create_cmd(owner_id=owner))
-        assert wf.owner_id == owner
+    def test_owner_name_set_correctly(self):
+        owner = "owner-a"
+        wf = make_service().create_workflow(base_create_cmd(owner_name=owner))
+        assert wf.owner_name == owner
 
     def test_trigger_type_stored(self):
         wf = make_service().create_workflow(base_create_cmd(trigger=TIME_SPEC))
@@ -184,7 +184,8 @@ class TestValidateWorkflow:
 
     def test_trigger_with_naive_datetime_reported(self):
         from datetime import datetime
-        from app.trigger.trigger import TimeTriggerConfig
+
+        from app.trigger.triggerConfig import TimeTriggerConfig
         bad_trigger = TimeTriggerConfig(trigger_at=datetime(2026, 5, 1, 9, 0, 0))  # no tzinfo
         wf = self._valid_wf().model_copy(update={"trigger": bad_trigger})
         errors = validate_workflow(wf)

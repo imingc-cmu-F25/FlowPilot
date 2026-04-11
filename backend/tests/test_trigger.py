@@ -1,24 +1,19 @@
 """Tests for trigger configs, factories, and runtime evaluators."""
 
 import asyncio
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
-
-from app.trigger.trigger import (
-    RecurrenceFrequency,
-    RecurrenceRule,
-    TimeTriggerConfig,
-    TimeTriggerFactory,
-    TimeTrigger,
-    TriggerSpec,
-    TriggerType,
+from app.trigger.recurrence import RecurrenceFrequency, RecurrenceRule
+from app.trigger.timeTrigger import TimeTrigger
+from app.trigger.trigger import TriggerSpec, TriggerType
+from app.trigger.triggerConfig import TimeTriggerConfig, WebhookTriggerConfig
+from app.trigger.triggerFactories import (
     TRIGGER_FACTORIES,
-    WebhookTriggerConfig,
+    TimeTriggerFactory,
     WebhookTriggerFactory,
-    WebhookTrigger,
 )
-
+from app.trigger.webhookTrigger import WebhookTrigger
 
 #  RecurrenceRule validation 
 
@@ -64,7 +59,7 @@ class TestRecurrenceRuleValidation:
 #  RecurrenceRule.is_due 
 
 class TestRecurrenceRuleIsDue:
-    BASE = datetime(2026, 1, 1, 9, 0, 0, tzinfo=timezone.utc)  # Thursday
+    BASE = datetime(2026, 1, 1, 9, 0, 0, tzinfo=UTC)  # Thursday
 
     def test_before_start_returns_false(self):
         rule = RecurrenceRule(frequency="daily", interval=1)
@@ -132,7 +127,7 @@ class TestRecurrenceRuleIsDue:
 
 class TestTimeTriggerConfig:
     def _future(self) -> datetime:
-        return datetime.now(timezone.utc) + timedelta(hours=1)
+        return datetime.now(UTC) + timedelta(hours=1)
 
     def test_valid_config_passes_validation(self):
         cfg = TimeTriggerConfig(trigger_at=self._future())
@@ -236,7 +231,7 @@ class TestTimeTriggerFactory:
         )
         cfg = self.factory.create(spec)
         assert isinstance(cfg, TimeTriggerConfig)
-        assert cfg.trigger_at == datetime(2026, 5, 1, 9, 0, 0, tzinfo=timezone.utc)
+        assert cfg.trigger_at == datetime(2026, 5, 1, 9, 0, 0, tzinfo=UTC)
 
     def test_no_recurrence_by_default(self):
         spec = TriggerSpec(
@@ -368,18 +363,19 @@ class TestTriggerFactoriesRegistry:
 
 class TestTriggerConfigRoundTrip:
     def test_time_config_without_recurrence_roundtrips(self):
-        from typing import Annotated, Union
+        from typing import Annotated
+
         from pydantic import BaseModel, Field
 
         TriggerConfigUnion = Annotated[
-            Union[TimeTriggerConfig, WebhookTriggerConfig],
+            TimeTriggerConfig | WebhookTriggerConfig,
             Field(discriminator="type"),
         ]
 
         class Wrapper(BaseModel):
             trigger: TriggerConfigUnion  # type: ignore[valid-type]
 
-        cfg = TimeTriggerConfig(trigger_at=datetime(2026, 5, 1, 9, 0, 0, tzinfo=timezone.utc))
+        cfg = TimeTriggerConfig(trigger_at=datetime(2026, 5, 1, 9, 0, 0, tzinfo=UTC))
         w = Wrapper(trigger=cfg)
         restored = Wrapper.model_validate(w.model_dump(mode="json"))
         assert isinstance(restored.trigger, TimeTriggerConfig)
@@ -387,11 +383,12 @@ class TestTriggerConfigRoundTrip:
         assert restored.trigger.recurrence is None
 
     def test_time_config_with_recurrence_roundtrips(self):
-        from typing import Annotated, Union
+        from typing import Annotated
+
         from pydantic import BaseModel, Field
 
         TriggerConfigUnion = Annotated[
-            Union[TimeTriggerConfig, WebhookTriggerConfig],
+            TimeTriggerConfig | WebhookTriggerConfig,
             Field(discriminator="type"),
         ]
 
@@ -400,7 +397,7 @@ class TestTriggerConfigRoundTrip:
 
         rule = RecurrenceRule(frequency="weekly", days_of_week=[0, 4])
         cfg = TimeTriggerConfig(
-            trigger_at=datetime(2026, 5, 1, 9, 0, 0, tzinfo=timezone.utc),
+            trigger_at=datetime(2026, 5, 1, 9, 0, 0, tzinfo=UTC),
             recurrence=rule,
         )
         w = Wrapper(trigger=cfg)
@@ -409,11 +406,12 @@ class TestTriggerConfigRoundTrip:
         assert restored.trigger.recurrence.days_of_week == [0, 4]
 
     def test_webhook_config_roundtrips(self):
-        from typing import Annotated, Union
+        from typing import Annotated
+
         from pydantic import BaseModel, Field
 
         TriggerConfigUnion = Annotated[
-            Union[TimeTriggerConfig, WebhookTriggerConfig],
+            TimeTriggerConfig | WebhookTriggerConfig,
             Field(discriminator="type"),
         ]
 
@@ -433,20 +431,20 @@ class TestTimeTriggerEvaluate:
     def test_past_time_one_shot_returns_true(self):
         trigger = TimeTrigger()
         cfg = TimeTriggerConfig(
-            trigger_at=datetime.now(timezone.utc) - timedelta(seconds=1)
+            trigger_at=datetime.now(UTC) - timedelta(seconds=1)
         )
         assert asyncio.run(trigger.evaluate({"config": cfg})) is True
 
     def test_future_time_one_shot_returns_false(self):
         trigger = TimeTrigger()
         cfg = TimeTriggerConfig(
-            trigger_at=datetime.now(timezone.utc) + timedelta(hours=1)
+            trigger_at=datetime.now(UTC) + timedelta(hours=1)
         )
         assert asyncio.run(trigger.evaluate({"config": cfg})) is False
 
     def test_recurring_daily_due_returns_true(self):
         trigger = TimeTrigger()
-        start = datetime.now(timezone.utc) - timedelta(days=1)
+        start = datetime.now(UTC) - timedelta(days=1)
         rule = RecurrenceRule(frequency="daily", interval=1)
         cfg = TimeTriggerConfig(trigger_at=start, recurrence=rule)
         # now is exactly 1 day after start → should be due
@@ -454,7 +452,7 @@ class TestTimeTriggerEvaluate:
 
     def test_recurring_before_start_returns_false(self):
         trigger = TimeTrigger()
-        start = datetime.now(timezone.utc) + timedelta(hours=1)
+        start = datetime.now(UTC) + timedelta(hours=1)
         rule = RecurrenceRule(frequency="daily", interval=1)
         cfg = TimeTriggerConfig(trigger_at=start, recurrence=rule)
         assert asyncio.run(trigger.evaluate({"config": cfg})) is False

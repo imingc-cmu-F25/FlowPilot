@@ -1,8 +1,9 @@
 from typing import Literal
-from uuid import uuid4, UUID
+from uuid import UUID, uuid4
+
 from pydantic import BaseModel, Field
 
-from app.action.base import ActionType, ActionSchema, BaseAction
+from app.action.base import ActionSchema, ActionType, BaseAction
 
 
 class SendEmailActionStep(BaseModel):

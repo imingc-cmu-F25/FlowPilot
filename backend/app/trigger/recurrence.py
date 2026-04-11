@@ -88,7 +88,8 @@ class RecurrenceRule(BaseModel):
 
     def _is_due_cron(self, now: datetime, window_seconds: int) -> bool:
         """
-        Return True if now falls within window_seconds after the most recent scheduled occurrence according to the cron expression.
+        Return True if now falls within window_seconds after the most recent
+        scheduled occurrence according to the cron expression.
         """
         now_naive = now.replace(tzinfo=None)
         last = croniter(self.cron_expression, now_naive).get_prev(datetime)

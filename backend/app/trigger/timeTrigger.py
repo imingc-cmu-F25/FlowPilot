@@ -1,4 +1,5 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+
 from app.trigger.trigger import BaseTrigger, TriggerSchema
 from app.trigger.triggerConfig import TimeTriggerConfig
 
@@ -45,16 +46,22 @@ class TimeTrigger(BaseTrigger):
 
     async def evaluate(self, context: dict) -> bool:
         config: TimeTriggerConfig = context["config"]
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
-        if config.fired: 
+        if self.fired:
             # already fired
             return False
 
         if config.recurrence is None:
             # One-time: fire when we reach or pass trigger_at
-            return now >= config.trigger_at
+            due = now >= config.trigger_at
+            if due:
+                self.fired = True
+            return due
 
         # Recurring: fire if now is within the 60-second window of the current occurrence
-        return config.recurrence.is_due(config.trigger_at, now)
+        due = config.recurrence.is_due(config.trigger_at, now)
+        if due:
+            self.fired = True
+        return due
 

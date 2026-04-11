@@ -1,12 +1,9 @@
 """Tests for WorkflowDefinitionBuilder (Concrete Builder) and WorkflowDefinition (Product)."""
 
 import pytest
-from uuid import uuid4
-
 from app.action.action import ActionType, StepSpec
 from app.trigger.trigger import TriggerSpec, TriggerType
 from app.workflow.workflow import WorkflowDefinition, WorkflowDefinitionBuilder, WorkflowStatus
-
 
 #  Shared fixtures 
 
@@ -60,7 +57,7 @@ class TestBuilderRequiresReset:
 class TestBuilderValidation:
     def test_build_without_name_raises(self):
         b = make_builder()
-        b.reset(uuid4())
+        b.reset("test-owner")
         b.set_trigger(TIME_SPEC)
         b.add_step(EMAIL_STEP)
         with pytest.raises(ValueError, match="name is required"):
@@ -68,7 +65,7 @@ class TestBuilderValidation:
 
     def test_build_without_trigger_raises(self):
         b = make_builder()
-        b.reset(uuid4())
+        b.reset("test-owner")
         b.set_metadata("My Workflow")
         b.add_step(EMAIL_STEP)
         with pytest.raises(ValueError, match="trigger is required"):
@@ -76,7 +73,7 @@ class TestBuilderValidation:
 
     def test_build_without_steps_raises(self):
         b = make_builder()
-        b.reset(uuid4())
+        b.reset("test-owner")
         b.set_metadata("My Workflow")
         b.set_trigger(TIME_SPEC)
         with pytest.raises(ValueError, match="at least one action step is required"):
@@ -88,7 +85,7 @@ class TestBuilderValidation:
 class TestBuilderHappyPath:
     def test_build_returns_workflow_definition(self):
         b = make_builder()
-        owner = uuid4()
+        owner = "owner-a"
         b.reset(owner)
         b.set_metadata("Daily Report", "Sends every morning")
         b.set_trigger(TIME_SPEC)
@@ -98,14 +95,14 @@ class TestBuilderHappyPath:
         assert isinstance(wf, WorkflowDefinition)
         assert wf.name == "Daily Report"
         assert wf.description == "Sends every morning"
-        assert wf.owner_id == owner
+        assert wf.owner_name == owner
         assert wf.trigger.type == TriggerType.TIME
         assert len(wf.steps) == 1
         assert wf.steps[0].action_type == ActionType.SEND_EMAIL
 
     def test_build_with_enabled_true(self):
         b = make_builder()
-        b.reset(uuid4())
+        b.reset("test-owner")
         b.set_metadata("W")
         b.set_trigger(TIME_SPEC)
         b.add_step(EMAIL_STEP)
@@ -115,7 +112,7 @@ class TestBuilderHappyPath:
 
     def test_default_status_is_draft(self):
         b = make_builder()
-        b.reset(uuid4())
+        b.reset("test-owner")
         b.set_metadata("W")
         b.set_trigger(TIME_SPEC)
         b.add_step(EMAIL_STEP)
@@ -125,7 +122,7 @@ class TestBuilderHappyPath:
     def test_build_assigns_unique_workflow_ids(self):
         def build_one():
             b = make_builder()
-            b.reset(uuid4())
+            b.reset("test-owner")
             b.set_metadata("W")
             b.set_trigger(TIME_SPEC)
             b.add_step(EMAIL_STEP)
@@ -137,7 +134,7 @@ class TestBuilderHappyPath:
 
     def test_builder_resets_after_build(self):
         b = make_builder()
-        b.reset(uuid4())
+        b.reset("test-owner")
         b.set_metadata("W")
         b.set_trigger(TIME_SPEC)
         b.add_step(EMAIL_STEP)
@@ -150,7 +147,7 @@ class TestBuilderHappyPath:
     def test_builder_can_be_reused_after_build(self):
         b = make_builder()
         for _ in range(2):
-            b.reset(uuid4())
+            b.reset("test-owner")
             b.set_metadata("W")
             b.set_trigger(TIME_SPEC)
             b.add_step(EMAIL_STEP)
@@ -163,7 +160,7 @@ class TestBuilderHappyPath:
 class TestBuilderStepOrdering:
     def test_steps_sorted_by_step_order_on_add(self):
         b = make_builder()
-        b.reset(uuid4())
+        b.reset("test-owner")
         b.set_metadata("W")
         b.set_trigger(TIME_SPEC)
 
@@ -182,7 +179,7 @@ class TestBuilderStepOrdering:
 
     def test_reorder_steps_updates_order(self):
         b = make_builder()
-        b.reset(uuid4())
+        b.reset("test-owner")
         b.set_metadata("W")
         b.set_trigger(TIME_SPEC)
 
@@ -200,10 +197,10 @@ class TestBuilderStepOrdering:
         )
         b.add_step(step_a)
         b.add_step(step_b)
-        wf_before = b.build()
+        b.build()
 
         # Rebuild and reorder: put B (index 1) before A (index 0)
-        b.reset(uuid4())
+        b.reset("test-owner")
         b.set_metadata("W")
         b.set_trigger(TIME_SPEC)
         b.add_step(step_a)
@@ -222,7 +219,7 @@ class TestBuilderStepOrdering:
 class TestBuilderMultipleStepTypes:
     def test_builds_workflow_with_multiple_different_step_types(self):
         b = make_builder()
-        b.reset(uuid4())
+        b.reset("test-owner")
         b.set_metadata("Multi-step")
         b.set_trigger(TIME_SPEC)
         b.add_step(StepSpec(
@@ -244,7 +241,7 @@ class TestBuilderMultipleStepTypes:
 class TestBuilderWebhookTrigger:
     def test_builds_workflow_with_webhook_trigger(self):
         b = make_builder()
-        b.reset(uuid4())
+        b.reset("test-owner")
         b.set_metadata("Webhook Flow")
         b.set_trigger(TriggerSpec(
             type=TriggerType.WEBHOOK,
@@ -258,7 +255,7 @@ class TestBuilderWebhookTrigger:
     def test_unknown_trigger_type_raises(self):
         from pydantic import ValidationError as PydanticValidationError
         b = make_builder()
-        b.reset(uuid4())
+        b.reset("test-owner")
         b.set_metadata("W")
         with pytest.raises((ValueError, KeyError, PydanticValidationError)):
             spec = TriggerSpec(type="nonexistent", parameters={})  # type: ignore[arg-type]
@@ -270,7 +267,7 @@ class TestBuilderWebhookTrigger:
 class TestWorkflowDefinitionRoundTrip:
     def _build_wf(self) -> WorkflowDefinition:
         b = make_builder()
-        b.reset(uuid4())
+        b.reset("test-owner")
         b.set_metadata("Round-trip test", "desc")
         b.set_trigger(TIME_SPEC)
         b.add_step(EMAIL_STEP)
@@ -288,7 +285,7 @@ class TestWorkflowDefinitionRoundTrip:
         assert restored.steps[0].action_type == wf.steps[0].action_type
 
     def test_restored_trigger_is_correct_concrete_type(self):
-        from app.trigger.trigger import TimeTriggerConfig
+        from app.trigger.triggerConfig import TimeTriggerConfig
         wf = self._build_wf()
         restored = WorkflowDefinition.model_validate(wf.model_dump(mode="json"))
         assert isinstance(restored.trigger, TimeTriggerConfig)
