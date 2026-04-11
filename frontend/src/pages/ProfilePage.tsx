@@ -48,6 +48,10 @@ export function ProfilePage() {
 
   const handleDeleteEmail = async (address: string) => {
     if (!username) return;
+    const confirmed = window.confirm(
+      `Delete email ${address}? This action cannot be undone.`,
+    );
+    if (!confirmed) return;
     setActionPending(address);
     setError(null);
     try {
@@ -84,7 +88,12 @@ export function ProfilePage() {
     setActionPending(oldAddress);
     setError(null);
     try {
-      const updated = await editUserEmail(username, oldAddress, newAddr, editAlias.trim());
+      const updated = await editUserEmail(
+        username,
+        oldAddress,
+        newAddr,
+        editAlias.trim(),
+      );
       setEmails(updated.emails);
       cancelEdit();
     } catch (err) {
@@ -124,7 +133,10 @@ export function ProfilePage() {
         <div className="mx-auto max-w-7xl px-6 py-8">
           <p className="text-gray-700">
             Sign in to manage your profile and email addresses.{" "}
-            <Link to="/login" className="font-medium text-blue-600 hover:text-blue-700">
+            <Link
+              to="/login"
+              className="font-medium text-blue-600 hover:text-blue-700"
+            >
               Sign in
             </Link>
           </p>
@@ -142,7 +154,9 @@ export function ProfilePage() {
           <AccountCard username={username} />
 
           <div className="rounded-lg border border-gray-200 bg-white p-6">
-            <h2 className="mb-4 text-xl font-semibold text-gray-900">Email addresses</h2>
+            <h2 className="mb-4 text-xl font-semibold text-gray-900">
+              Email addresses
+            </h2>
             {error && (
               <p className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-800">
                 {error}

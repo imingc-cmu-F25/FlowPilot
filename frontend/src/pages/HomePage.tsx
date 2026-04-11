@@ -3,7 +3,6 @@ import {
   Zap,
   Clock,
   Webhook,
-  Calendar,
   Mail,
   Bell,
   Code,

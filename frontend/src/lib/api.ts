@@ -3,7 +3,7 @@ const envBase = (
 )?.replace(/\/$/, "");
 
 export const API_BASE = import.meta.env.PROD
-  ? envBase ?? ""
+  ? (envBase ?? "")
   : envBase || "http://127.0.0.1:8000/api";
 
 export type EmailAddress = { address: string; alias: string };
@@ -21,6 +21,9 @@ function extractDetail(data: unknown): string | undefined {
   if (data && typeof data === "object" && "detail" in data) {
     const d = (data as { detail: unknown }).detail;
     if (typeof d === "string") return d;
+    if (d && typeof d === "object" && "message" in d) {
+      return String((d as { message: unknown }).message);
+    }
     if (Array.isArray(d) && d[0] && typeof d[0] === "object" && "msg" in d[0]) {
       return String((d[0] as { msg: unknown }).msg);
     }
@@ -122,7 +125,12 @@ export type WorkflowDefinition = {
   enabled: boolean;
   status: WorkflowStatus;
   trigger: { type: string; [key: string]: unknown };
-  steps: { action_type: string; name: string; step_order: number; [key: string]: unknown }[];
+  steps: {
+    action_type: string;
+    name: string;
+    step_order: number;
+    [key: string]: unknown;
+  }[];
   created_at: string;
   updated_at: string;
 };
@@ -133,10 +141,17 @@ export type CreateWorkflowPayload = {
   description?: string;
   enabled: boolean;
   trigger: { type: string; parameters: Record<string, unknown> };
-  steps: { action_type: string; name: string; step_order: number; parameters: Record<string, unknown> }[];
+  steps: {
+    action_type: string;
+    name: string;
+    step_order: number;
+    parameters: Record<string, unknown>;
+  }[];
 };
 
-export async function createWorkflow(payload: CreateWorkflowPayload): Promise<WorkflowDefinition> {
+export async function createWorkflow(
+  payload: CreateWorkflowPayload,
+): Promise<WorkflowDefinition> {
   const res = await apiFetch(`${API_BASE}/workflows`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -154,8 +169,46 @@ export async function fetchWorkflows(): Promise<WorkflowDefinition[]> {
   return data as WorkflowDefinition[];
 }
 
+export async function fetchWorkflow(
+  workflowId: string,
+): Promise<WorkflowDefinition> {
+  const res = await apiFetch(`${API_BASE}/workflows/${workflowId}`);
+  const data = await parseBody(res);
+  if (!res.ok) throw new Error(extractDetail(data) ?? res.statusText);
+  return data as WorkflowDefinition;
+}
+
+export type UpdateWorkflowPayload = {
+  name?: string;
+  description?: string;
+  enabled?: boolean;
+  trigger?: { type: string; parameters: Record<string, unknown> };
+  steps?: {
+    action_type: string;
+    name: string;
+    step_order: number;
+    parameters: Record<string, unknown>;
+  }[];
+};
+
+export async function updateWorkflow(
+  workflowId: string,
+  payload: UpdateWorkflowPayload,
+): Promise<WorkflowDefinition> {
+  const res = await apiFetch(`${API_BASE}/workflows/${workflowId}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const data = await parseBody(res);
+  if (!res.ok) throw new Error(extractDetail(data) ?? res.statusText);
+  return data as WorkflowDefinition;
+}
+
 export async function deleteWorkflow(workflowId: string): Promise<void> {
-  const res = await apiFetch(`${API_BASE}/workflows/${workflowId}`, { method: "DELETE" });
+  const res = await apiFetch(`${API_BASE}/workflows/${workflowId}`, {
+    method: "DELETE",
+  });
   if (!res.ok) {
     const data = await parseBody(res);
     throw new Error(extractDetail(data) ?? res.statusText);

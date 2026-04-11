@@ -1,14 +1,18 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router";
 import { Plus } from "lucide-react";
-import { fetchWorkflows, deleteWorkflow, type WorkflowDefinition } from "../lib/api";
+import {
+  fetchWorkflows,
+  deleteWorkflow,
+  type WorkflowDefinition,
+} from "../lib/api";
 import { WorkflowSearchBar } from "../components/workflow-list/WorkflowSearchBar";
 import { WorkflowCard } from "../components/workflow-list/WorkflowCard";
 
 type FilterValue = "all" | "active" | "disabled";
 
 function toCardStatus(wf: WorkflowDefinition): "active" | "disabled" {
-  return wf.enabled && wf.status === "active" ? "active" : "disabled";
+  return wf.enabled ? "active" : "disabled";
 }
 
 function formatDate(iso: string): string {
@@ -49,6 +53,10 @@ export function WorkflowListPage() {
   }, [load]);
 
   const handleDelete = async (workflowId: string) => {
+    const confirmed = window.confirm(
+      "Delete this workflow? This action cannot be undone.",
+    );
+    if (!confirmed) return;
     setOpenMenu(null);
     try {
       await deleteWorkflow(workflowId);
@@ -95,7 +103,9 @@ export function WorkflowListPage() {
         <p className="text-sm text-gray-600">Loading…</p>
       ) : filteredWorkflows.length === 0 ? (
         <p className="text-sm text-gray-600">
-          {workflows.length === 0 ? "No workflows yet. Create one to get started." : "No workflows match your search."}
+          {workflows.length === 0
+            ? "No workflows yet. Create one to get started."
+            : "No workflows match your search."}
         </p>
       ) : (
         <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
