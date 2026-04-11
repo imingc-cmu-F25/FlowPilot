@@ -20,10 +20,10 @@ services:
     ports:
       - "6379:6379"
 
-  backend-api:
+  backend:
     build:
       context: ../backend
-    container_name: flowpilot-backend-api
+    container_name: flowpilot-backend
     restart: unless-stopped
     env_file:
       - ../.env
@@ -34,21 +34,7 @@ services:
       - "8000:8000"
     volumes:
       - ../backend:/app
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
-
-  backend-worker:
-    build:
-      context: ../backend
-    container_name: flowpilot-backend-worker
-    restart: unless-stopped
-    env_file:
-      - ../.env
-    depends_on:
-      - redis
-      - postgres
-    volumes:
-      - ../backend:/app
-    command: celery -A app.worker.celery_app worker --loglevel=info
+    command: /bin/sh -c "uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload & celery -A app.worker.celery_app worker --loglevel=info"
 
   frontend:
     build:
@@ -58,7 +44,7 @@ services:
     env_file:
       - ../.env
     depends_on:
-      - backend-api
+      - backend
     ports:
       - "5173:5173"
     volumes:

@@ -1,0 +1,43 @@
+from app.user.emailAddress import EmailAddress
+from pydantic import BaseModel
+
+
+class UserPublic(BaseModel):
+    name: str
+    emails: list[EmailAddress]
+
+
+class AuthResponse(BaseModel):
+    ok: bool
+    message: str
+    user: UserPublic | None = None
+    token: str | None = None
+
+
+class UserCredentials(BaseModel):
+    name: str
+    password: str
+
+
+class RegisterRequest(BaseModel):
+    name: str
+    password: str
+    email: str | None = None
+
+
+class UserEmailUpdate(BaseModel):
+    name: str
+    address: str
+    alias: str = ""
+
+
+class UserEmailDelete(BaseModel):
+    name: str
+    address: str
+
+
+class UserEmailEdit(BaseModel):
+    name: str
+    old_address: str
+    new_address: str
+    new_alias: str = ""

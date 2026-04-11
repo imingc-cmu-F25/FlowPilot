@@ -7,7 +7,9 @@ WORKDIR /app
 
 COPY pyproject.toml /app/pyproject.toml
 RUN pip install --no-cache-dir \
+    bcrypt \
     celery \
+    croniter \
     fastapi \
     pydantic-settings \
     "psycopg[binary]" \
