@@ -116,7 +116,7 @@ export type WorkflowStatus = "draft" | "active" | "paused" | "archived";
 
 export type WorkflowDefinition = {
   workflow_id: string;
-  owner_id: string;
+  owner_name: string;
   name: string;
   description: string;
   enabled: boolean;
@@ -126,6 +126,26 @@ export type WorkflowDefinition = {
   created_at: string;
   updated_at: string;
 };
+
+export type CreateWorkflowPayload = {
+  owner_name: string;
+  name: string;
+  description?: string;
+  enabled: boolean;
+  trigger: { type: string; parameters: Record<string, unknown> };
+  steps: { action_type: string; name: string; step_order: number; parameters: Record<string, unknown> }[];
+};
+
+export async function createWorkflow(payload: CreateWorkflowPayload): Promise<WorkflowDefinition> {
+  const res = await apiFetch(`${API_BASE}/workflows`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const data = await parseBody(res);
+  if (!res.ok) throw new Error(extractDetail(data) ?? res.statusText);
+  return data as WorkflowDefinition;
+}
 
 export async function fetchWorkflows(): Promise<WorkflowDefinition[]> {
   const res = await apiFetch(`${API_BASE}/workflows`);

@@ -97,7 +97,7 @@ class WorkflowRepository:
         if orm is None:
             self._db.add(WorkflowORM(
                 id=wf.workflow_id,
-                owner_id=wf.owner_id,
+                owner_name=wf.owner_name,
                 name=wf.name,
                 description=wf.description,
                 status=str(wf.status),
@@ -106,7 +106,7 @@ class WorkflowRepository:
                 updated_at=wf.updated_at,
             ))
         else:
-            orm.owner_id = wf.owner_id
+            orm.owner_name = wf.owner_name
             orm.name = wf.name
             orm.description = wf.description
             orm.status = str(wf.status)
@@ -162,7 +162,7 @@ class WorkflowRepository:
         steps = [_step_adapter.validate_python(s.config) for s in step_orms]
         return WorkflowDefinition(
             workflow_id=wf_orm.id,
-            owner_id=wf_orm.owner_id,
+            owner_name=wf_orm.owner_name,
             name=wf_orm.name,
             description=wf_orm.description,
             status=wf_orm.status,

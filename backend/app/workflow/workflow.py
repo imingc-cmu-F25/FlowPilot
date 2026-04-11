@@ -21,12 +21,12 @@ class WorkflowStatus(StrEnum):
 class WorkflowDefinition(BaseModel):
     """
     The final workflow object produced by the builder.
-    
+
     Contains exactly one trigger config and an ordered list of action steps.
     Stored in WorkflowORM.payload as JSON.
     """
     workflow_id: UUID = Field(default_factory=uuid4)
-    owner_id: UUID
+    owner_name: str
     name: str
     description: str = ""
     enabled: bool = False
@@ -40,7 +40,7 @@ class WorkflowDefinition(BaseModel):
 # Builder interface
 class IWorkflowBuilder(ABC):
     @abstractmethod
-    def reset(self, owner_id: UUID) -> None: ...
+    def reset(self, owner_name: str) -> None: ...
 
     @abstractmethod
     def set_metadata(self, name: str, description: str) -> None: ...
@@ -74,10 +74,10 @@ class WorkflowDefinitionBuilder(IWorkflowBuilder):
     def __init__(self) -> None:
         self._draft: dict = {}
 
-    def reset(self, owner_id: UUID) -> None:
+    def reset(self, owner_name: str) -> None:
         self._draft = {
             "workflow_id": uuid4(),
-            "owner_id": owner_id,
+            "owner_name": owner_name,
             "steps": [],
             "enabled": False,
             "status": WorkflowStatus.DRAFT,

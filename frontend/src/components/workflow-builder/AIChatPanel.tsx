@@ -16,7 +16,7 @@ interface AIChatPanelProps {
 
 export function AIChatPanel({ messages, input, onInputChange, onSend, onClose }: AIChatPanelProps) {
   return (
-    <div className="flex w-96 flex-col border-l border-gray-200 bg-white">
+    <div className="flex w-full flex-col border-l border-gray-200 bg-white sm:w-80 md:w-96">
       <div className="flex items-center justify-between border-b border-gray-200 p-4">
         <div className="flex items-center gap-2">
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-purple-100">

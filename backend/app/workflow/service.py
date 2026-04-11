@@ -1,5 +1,4 @@
 from datetime import datetime, timezone
-from uuid import UUID
 
 from pydantic import BaseModel
 
@@ -10,7 +9,7 @@ from app.workflow.workflow import IWorkflowBuilder, WorkflowDefinition, Workflow
 
 
 class CreateWorkflowCommand(BaseModel):
-    owner_id: UUID
+    owner_name: str
     name: str
     description: str = ""
     trigger: TriggerSpec
@@ -39,7 +38,7 @@ class WorkflowService:
 
     def create_workflow(self, cmd: CreateWorkflowCommand) -> WorkflowDefinition:
         b = self._builder
-        b.reset(cmd.owner_id)
+        b.reset(cmd.owner_name)
         b.set_metadata(cmd.name, cmd.description)
         b.set_trigger(cmd.trigger)
         for step_spec in cmd.steps:

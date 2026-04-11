@@ -28,11 +28,6 @@ const features = [
       "Connect with external services and trigger workflows from anywhere",
   },
   {
-    icon: Calendar,
-    title: "Calendar Sync",
-    description: "Automate tasks based on your Google Calendar events",
-  },
-  {
     icon: Mail,
     title: "Email Actions",
     description: "Send automated emails as part of your workflow",

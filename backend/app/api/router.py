@@ -2,12 +2,14 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import ValidationError
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.action.actionRegistry import ActionRegistry
 from app.core.config import settings
 from app.db.session import get_db
 from app.trigger.triggerRegistry import TriggerRegistry
+from app.user.repo import UserRepository
 from app.workflow.repo import WorkflowRepository
 from app.workflow.run_repo import WorkflowRunRepository
 from app.workflow.service import (
@@ -22,15 +24,35 @@ from app.workflow.workflow import WorkflowStatus
 api_router = APIRouter()
 
 
-# System
+def _format_validation_errors(exc: ValidationError) -> dict:
+    errors = []
+    for err in exc.errors():
+        loc = ".".join(str(part) for part in err.get("loc", []))
+        errors.append({"field": loc, "message": err.get("msg", "Invalid value")})
+    return {"message": "Validation failed", "errors": errors}
 
+
+def _format_value_error(exc: ValueError) -> dict:
+    return {"message": str(exc)}
+
+
+def _format_integrity_error(exc: IntegrityError) -> dict:
+    message = "Database constraint violated"
+    errors = []
+    details = str(exc.orig) if exc.orig else str(exc)
+    if "workflows_owner_name_fkey" in details:
+        message = "Owner not found"
+        errors.append({"field": "owner_name", "message": "User does not exist"})
+    return {"message": message, "errors": errors}
+
+
+# System
 @api_router.get("/healthz", tags=["system"])
 def healthcheck() -> dict[str, str]:
     return {"status": "ok", "service": settings.app_name}
 
 
-# Workflow CRUD 
-
+# Workflow 
 @api_router.get("/workflows")
 def list_workflows(db: Session = Depends(get_db)):
     return WorkflowRepository(db).list_all()
@@ -43,10 +65,29 @@ def create_workflow(
     svc: WorkflowService = Depends(make_workflow_service),
 ):
     try:
+        if UserRepository(db).get_by_name(cmd.owner_name) is None:
+            raise HTTPException(
+                422,
+                detail={
+                    "message": "Owner not found",
+                    "errors": [
+                        {"field": "owner_name", "message": "User does not exist"}
+                    ],
+                },
+            )
         wf = svc.create_workflow(cmd)
+        return WorkflowRepository(db).save(wf)
+    
     except (ValidationError, ValueError) as exc:
-        raise HTTPException(422, detail=str(exc))
-    return WorkflowRepository(db).save(wf)
+        if isinstance(exc, ValidationError):
+            raise HTTPException(422, detail=_format_validation_errors(exc))
+        raise HTTPException(422, detail=_format_value_error(exc))
+    
+    except IntegrityError as exc:
+        raise HTTPException(422, detail=_format_integrity_error(exc))
+    
+    except Exception:
+        raise HTTPException(500, detail={"message": "Unexpected server error"})
 
 
 @api_router.get("/workflows/{wf_id}")
@@ -66,10 +107,24 @@ def update_workflow(
 ):
     repo = WorkflowRepository(db)
     existing = repo.get(wf_id)
+    # Find existing workflow for editing
     if existing is None:
         raise HTTPException(404, detail="Workflow not found")
-    updated = svc.update_workflow(existing, cmd)
-    return repo.save(updated)
+    
+    try:
+        updated = svc.update_workflow(existing, cmd)
+        return repo.save(updated)
+    
+    except (ValidationError, ValueError) as exc:
+        if isinstance(exc, ValidationError):
+            raise HTTPException(422, detail=_format_validation_errors(exc))
+        raise HTTPException(422, detail=_format_value_error(exc))
+    
+    except IntegrityError as exc:
+        raise HTTPException(422, detail=_format_integrity_error(exc))
+    
+    except Exception:
+        raise HTTPException(500, detail={"message": "Unexpected server error"})
 
 
 @api_router.delete("/workflows/{wf_id}", status_code=204)
@@ -78,12 +133,13 @@ def delete_workflow(wf_id: UUID, db: Session = Depends(get_db)):
 
 
 # Validation & Activation 
-
 @api_router.post("/workflows/{wf_id}/validate")
 def validate(wf_id: UUID, db: Session = Depends(get_db)):
     wf = WorkflowRepository(db).get(wf_id)
+    
     if wf is None:
         raise HTTPException(404, detail="Workflow not found")
+    
     errors = validate_workflow(wf)
     return {"valid": len(errors) == 0, "errors": errors}
 
@@ -94,15 +150,16 @@ def activate_workflow(wf_id: UUID, db: Session = Depends(get_db)):
     wf = repo.get(wf_id)
     if wf is None:
         raise HTTPException(404, detail="Workflow not found")
+    
     errors = validate_workflow(wf)
     if errors:
         raise HTTPException(422, detail={"message": "Workflow is invalid", "errors": errors})
+    
     activated = wf.model_copy(update={"status": WorkflowStatus.ACTIVE, "enabled": True})
     return repo.save(activated)
 
 
-# Workflow Runs 
-
+# Workflow Runs
 @api_router.get("/workflows/{wf_id}/runs")
 def list_runs(wf_id: UUID, db: Session = Depends(get_db)):
     if WorkflowRepository(db).get(wf_id) is None:
@@ -119,7 +176,6 @@ def get_run(wf_id: UUID, run_id: UUID, db: Session = Depends(get_db)):
 
 
 # Registry
-
 @api_router.get("/registry/actions")
 def list_actions():
     return ActionRegistry.list_schemas()
