@@ -112,6 +112,36 @@ export async function editUserEmail(
   return data as UserPublic;
 }
 
+export type WorkflowStatus = "draft" | "active" | "paused" | "archived";
+
+export type WorkflowDefinition = {
+  workflow_id: string;
+  owner_id: string;
+  name: string;
+  description: string;
+  enabled: boolean;
+  status: WorkflowStatus;
+  trigger: { type: string; [key: string]: unknown };
+  steps: { action_type: string; name: string; step_order: number; [key: string]: unknown }[];
+  created_at: string;
+  updated_at: string;
+};
+
+export async function fetchWorkflows(): Promise<WorkflowDefinition[]> {
+  const res = await apiFetch(`${API_BASE}/workflows`);
+  const data = await parseBody(res);
+  if (!res.ok) throw new Error(extractDetail(data) ?? res.statusText);
+  return data as WorkflowDefinition[];
+}
+
+export async function deleteWorkflow(workflowId: string): Promise<void> {
+  const res = await apiFetch(`${API_BASE}/workflows/${workflowId}`, { method: "DELETE" });
+  if (!res.ok) {
+    const data = await parseBody(res);
+    throw new Error(extractDetail(data) ?? res.statusText);
+  }
+}
+
 export async function registerUser(body: {
   name: string;
   password: string;

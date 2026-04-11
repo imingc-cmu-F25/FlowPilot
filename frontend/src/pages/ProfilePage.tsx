@@ -9,6 +9,9 @@ import {
   fetchAllUsers,
   type EmailAddress,
 } from "../lib/api";
+import { AccountCard } from "../components/profile/AccountCard";
+import { EmailListItem } from "../components/profile/EmailListItem";
+import { AddEmailForm } from "../components/profile/AddEmailForm";
 
 export function ProfilePage() {
   const username = getStoredUsername();
@@ -73,15 +76,15 @@ export function ProfilePage() {
   const handleEditEmail = async (e: FormEvent, oldAddress: string) => {
     e.preventDefault();
     if (!username) return;
-    const newAddress = editAddress.trim();
-    if (!newAddress) {
+    const newAddr = editAddress.trim();
+    if (!newAddr) {
       setError("Email address is required");
       return;
     }
     setActionPending(oldAddress);
     setError(null);
     try {
-      const updated = await editUserEmail(username, oldAddress, newAddress, editAlias.trim());
+      const updated = await editUserEmail(username, oldAddress, newAddr, editAlias.trim());
       setEmails(updated.emails);
       cancelEdit();
     } catch (err) {
@@ -136,15 +139,7 @@ export function ProfilePage() {
       <div className="mx-auto max-w-7xl px-6 py-8">
         <h1 className="mb-6 text-2xl font-semibold text-gray-900">Profile</h1>
         <div className="space-y-8">
-          <div className="rounded-lg border border-gray-200 bg-white p-6">
-            <h2 className="mb-4 text-xl font-semibold text-gray-900">Account</h2>
-            <div>
-              <label className="mb-2 block text-sm font-medium text-gray-700">Username</label>
-              <p className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-2 text-gray-900">
-                {username}
-              </p>
-            </div>
-          </div>
+          <AccountCard username={username} />
 
           <div className="rounded-lg border border-gray-200 bg-white p-6">
             <h2 className="mb-4 text-xl font-semibold text-gray-900">Email addresses</h2>
@@ -160,118 +155,32 @@ export function ProfilePage() {
             ) : (
               <ul className="mb-6 space-y-2">
                 {emails.map((row) => (
-                  <li
+                  <EmailListItem
                     key={`${row.address}-${row.alias}`}
-                    className="rounded-lg border border-gray-200 px-4 py-3"
-                  >
-                    {editingAddress === row.address ? (
-                      <form onSubmit={(e) => handleEditEmail(e, row.address)} className="space-y-3">
-                        <div>
-                          <label className="mb-1 block text-xs font-medium text-gray-600">Email address</label>
-                          <input
-                            type="email"
-                            value={editAddress}
-                            onChange={(e) => setEditAddress(e.target.value)}
-                            className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                          />
-                        </div>
-                        <div>
-                          <label className="mb-1 block text-xs font-medium text-gray-600">Alias</label>
-                          <input
-                            type="text"
-                            value={editAlias}
-                            onChange={(e) => setEditAlias(e.target.value)}
-                            placeholder="Work, school, personal…"
-                            className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                          />
-                        </div>
-                        <div className="flex gap-2">
-                          <button
-                            type="submit"
-                            disabled={actionPending === row.address}
-                            className="rounded-lg bg-blue-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-                          >
-                            {actionPending === row.address ? "Saving…" : "Save"}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={cancelEdit}
-                            className="rounded-lg border border-gray-300 px-4 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
-                          >
-                            Cancel
-                          </button>
-                        </div>
-                      </form>
-                    ) : (
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <div className="flex flex-wrap items-baseline gap-2">
-                          <span className="font-medium text-gray-900">{row.address}</span>
-                          {row.alias ? (
-                            <span className="text-sm text-gray-500">{row.alias}</span>
-                          ) : null}
-                        </div>
-                        <div className="flex gap-2">
-                          <button
-                            type="button"
-                            onClick={() => startEdit(row)}
-                            disabled={actionPending !== null}
-                            className="rounded-lg border border-gray-300 px-3 py-1 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-                          >
-                            Edit
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteEmail(row.address)}
-                            disabled={actionPending === row.address}
-                            className="rounded-lg border border-red-200 px-3 py-1 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
-                          >
-                            {actionPending === row.address ? "Deleting…" : "Delete"}
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </li>
+                    row={row}
+                    isEditing={editingAddress === row.address}
+                    editAddress={editAddress}
+                    editAlias={editAlias}
+                    actionPending={actionPending}
+                    onStartEdit={() => startEdit(row)}
+                    onCancelEdit={cancelEdit}
+                    onChangeEditAddress={setEditAddress}
+                    onChangeEditAlias={setEditAlias}
+                    onSubmitEdit={(e) => handleEditEmail(e, row.address)}
+                    onDelete={() => handleDeleteEmail(row.address)}
+                  />
                 ))}
               </ul>
             )}
 
-            <h3 className="mb-3 text-sm font-semibold text-gray-900">Add email</h3>
-            <form onSubmit={handleAddEmail} className="space-y-4">
-              <div>
-                <label htmlFor="new-email" className="mb-1 block text-sm font-medium text-gray-700">
-                  Email address
-                </label>
-                <input
-                  id="new-email"
-                  type="email"
-                  value={newAddress}
-                  onChange={(e) => setNewAddress(e.target.value)}
-                  placeholder="you@example.com"
-                  autoComplete="email"
-                  className="w-full rounded-lg border border-gray-300 px-4 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                />
-              </div>
-              <div>
-                <label htmlFor="new-alias" className="mb-1 block text-sm font-medium text-gray-700">
-                  Alias
-                </label>
-                <input
-                  id="new-alias"
-                  type="text"
-                  value={newAlias}
-                  onChange={(e) => setNewAlias(e.target.value)}
-                  placeholder="Work, school, personal…"
-                  className="w-full rounded-lg border border-gray-300 px-4 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                />
-              </div>
-              <button
-                type="submit"
-                disabled={saving}
-                className="rounded-lg bg-blue-600 px-6 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:opacity-50"
-              >
-                {saving ? "Adding…" : "Add email"}
-              </button>
-            </form>
+            <AddEmailForm
+              address={newAddress}
+              alias={newAlias}
+              saving={saving}
+              onChangeAddress={setNewAddress}
+              onChangeAlias={setNewAlias}
+              onSubmit={handleAddEmail}
+            />
           </div>
         </div>
       </div>
