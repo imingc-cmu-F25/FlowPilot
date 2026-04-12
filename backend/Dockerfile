@@ -12,6 +12,7 @@ RUN pip install --no-cache-dir \
     croniter \
     fastapi \
     httpx \
+    openai \
     pydantic-settings \
     "psycopg[binary]" \
     redis \

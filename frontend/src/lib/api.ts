@@ -232,6 +232,49 @@ export async function registerUser(body: {
   return data as AuthResponse;
 }
 
+export type SuggestionAnalysis = {
+  complexity_level: "simple" | "medium" | "complex";
+  input_type: string;
+  confidence: number;
+};
+
+export type SuggestionResponse = {
+  id: string;
+  user_name: string;
+  raw_text: string;
+  strategy_used: "rule_based" | "template" | "llm";
+  analysis: SuggestionAnalysis;
+  content: string;
+  workflow_draft: WorkflowDefinition | null;
+  created_at: string;
+  accepted_workflow_id: string | null;
+};
+
+export async function createSuggestion(body: {
+  raw_text: string;
+  user_name: string | null;
+}): Promise<SuggestionResponse> {
+  const res = await apiFetch(`${API_BASE}/suggestions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const data = await parseBody(res);
+  if (!res.ok) throw new Error(extractDetail(data) ?? res.statusText);
+  return data as SuggestionResponse;
+}
+
+export async function fetchSuggestions(
+  userName: string,
+): Promise<SuggestionResponse[]> {
+  const res = await apiFetch(
+    `${API_BASE}/suggestions?user_name=${encodeURIComponent(userName)}`,
+  );
+  const data = await parseBody(res);
+  if (!res.ok) throw new Error(extractDetail(data) ?? res.statusText);
+  return data as SuggestionResponse[];
+}
+
 export async function loginUser(
   name: string,
   password: string,
