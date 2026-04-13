@@ -6,7 +6,7 @@ from uuid import UUID
 from sqlalchemy import update
 from sqlalchemy.orm import Session
 
-from app.db.schema import WorkflowRunORM
+from app.db.schema import WorkflowORM, WorkflowRunORM
 from app.workflow.run import RunStatus, WorkflowRun
 
 
@@ -126,6 +126,30 @@ class WorkflowRunRepository:
             .filter(WorkflowRunORM.workflow_id == workflow_id)
             .order_by(WorkflowRunORM.triggered_at.desc())
             .limit(limit)
+            .all()
+        )
+        return [self._to_domain(r) for r in rows]
+
+    def list_for_owner_in_period(
+        self,
+        owner_name: str,
+        period_start: datetime,
+        period_end: datetime,
+    ) -> list[WorkflowRun]:
+        """Return all runs owned by `owner_name` triggered within [start, end].
+
+        Joins workflow_runs against workflows to scope by owner. Used by the
+        reporting pipeline's DataCollectionFilter.
+        """
+        rows = (
+            self._db.query(WorkflowRunORM)
+            .join(WorkflowORM, WorkflowRunORM.workflow_id == WorkflowORM.id)
+            .filter(
+                WorkflowORM.owner_name == owner_name,
+                WorkflowRunORM.triggered_at >= period_start,
+                WorkflowRunORM.triggered_at <= period_end,
+            )
+            .order_by(WorkflowRunORM.triggered_at.asc())
             .all()
         )
         return [self._to_domain(r) for r in rows]
