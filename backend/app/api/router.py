@@ -1,3 +1,4 @@
+from datetime import datetime
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -9,6 +10,8 @@ from app.action.actionRegistry import ActionRegistry
 from app.core.config import settings
 from app.db.session import get_db
 from app.execution.contracts import enqueue_execute_run
+from app.reporting.repo import ReportRepository
+from app.reporting.service import make_reporting_service
 from app.trigger.triggerRegistry import TriggerRegistry
 from app.user.repo import UserRepository
 from app.workflow.repo import WorkflowRepository
@@ -219,3 +222,48 @@ def list_actions():
 @api_router.get("/registry/triggers")
 def list_triggers():
     return TriggerRegistry.list_schemas()
+
+
+# Reports
+class GenerateReportBody(BaseModel):
+    owner_name: str
+    period_start: datetime
+    period_end: datetime
+
+
+@api_router.get("/reports", tags=["reports"])
+def list_reports(owner_name: str, db: Session = Depends(get_db)):
+    if UserRepository(db).get_by_name(owner_name) is None:
+        raise HTTPException(404, detail="Owner not found")
+    return ReportRepository(db).list_for_owner(owner_name)
+
+
+@api_router.get("/reports/{report_id}", tags=["reports"])
+def get_report(report_id: UUID, db: Session = Depends(get_db)):
+    report = ReportRepository(db).get(report_id)
+    if report is None:
+        raise HTTPException(404, detail="Report not found")
+    return report
+
+
+@api_router.post("/reports/generate", status_code=201, tags=["reports"])
+def generate_report(body: GenerateReportBody, db: Session = Depends(get_db)):
+    """Synchronous manual trigger for the reporting pipeline.
+
+    Runs the pipeline in-process (no Celery) for dev/testing. The async,
+    beat-driven path enqueues reporting.generate_monthly_report via Celery.
+    """
+    if UserRepository(db).get_by_name(body.owner_name) is None:
+        raise HTTPException(404, detail="Owner not found")
+    if body.period_end <= body.period_start:
+        raise HTTPException(
+            422,
+            detail={"message": "period_end must be after period_start"},
+        )
+    service = make_reporting_service(db)
+    report = service.generate_monthly_report(
+        owner_name=body.owner_name,
+        period_start=body.period_start,
+        period_end=body.period_end,
+    )
+    return report
