@@ -11,7 +11,12 @@ from datetime import datetime
 
 from sqlalchemy.orm import Session
 
-from app.reporting.ai_client import AISummaryClient, FakeAISummaryClient
+from app.core.config import settings
+from app.reporting.ai_client import (
+    AISummaryClient,
+    FakeAISummaryClient,
+    OpenAIAISummaryClient,
+)
 from app.reporting.filters.aggregation import AggregationFilter
 from app.reporting.filters.ai_summary import AISummaryFilter
 from app.reporting.filters.data_collection import DataCollectionFilter
@@ -54,10 +59,22 @@ class ReportingService:
         return result.formatted_report
 
 
+def _default_ai_client() -> AISummaryClient:
+    """Pick the AI client based on settings.
+
+    If an OpenAI key is configured we hit the real API; otherwise the fake
+    client keeps the pipeline runnable in local dev / CI / tests without
+    network access or secrets.
+    """
+    if settings.openai_api_key:
+        return OpenAIAISummaryClient(api_key=settings.openai_api_key)
+    return FakeAISummaryClient()
+
+
 def make_reporting_service(db: Session) -> ReportingService:
-    """Default DI factory — uses FakeAISummaryClient until a real one lands."""
+    """Default DI factory — picks the AI client based on settings."""
     return ReportingService(
         run_repo=WorkflowRunRepository(db),
         report_repo=ReportRepository(db),
-        ai_client=FakeAISummaryClient(),
+        ai_client=_default_ai_client(),
     )
