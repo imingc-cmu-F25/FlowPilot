@@ -4,7 +4,9 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from app.db.connector import get_engine
+from app.reporting.ai_client import FakeAISummaryClient
 from app.reporting.filters.aggregation import AggregationFilter
+from app.reporting.filters.ai_summary import AISummaryFilter
 from app.reporting.filters.data_collection import DataCollectionFilter
 from app.reporting.filters.formatting import FormattingFilter
 from app.reporting.pipeline import PipeData
@@ -205,3 +207,43 @@ def test_formatting_filter_defaults_when_metrics_missing():
     assert result.formatted_report is not None
     assert result.formatted_report.metrics.total_runs == 0
     assert result.formatted_report.ai_summary == ""
+
+
+# AISummaryFilter
+
+class _ExplodingAIClient:
+    def summarize(self, metrics: dict) -> str:
+        raise RuntimeError("model unavailable")
+
+
+def test_ai_summary_filter_uses_fake_client():
+    metrics = AggregatedMetrics(total_runs=5, success_count=4, success_rate=0.8)
+    data = PipeData(
+        owner_name="a",
+        period_start=PERIOD_START,
+        period_end=PERIOD_END,
+        aggregated_metrics=metrics,
+    )
+    result = AISummaryFilter(FakeAISummaryClient()).process(data)
+    assert result.ai_summary == "Monthly report: 5 runs, 80% success."
+
+
+def test_ai_summary_filter_falls_back_on_client_error():
+    data = PipeData(
+        owner_name="a",
+        period_start=PERIOD_START,
+        period_end=PERIOD_END,
+        aggregated_metrics=AggregatedMetrics(total_runs=1),
+    )
+    result = AISummaryFilter(_ExplodingAIClient()).process(data)
+    assert result.ai_summary == "AI summary unavailable: RuntimeError"
+
+
+def test_ai_summary_filter_handles_missing_metrics():
+    data = PipeData(
+        owner_name="a",
+        period_start=PERIOD_START,
+        period_end=PERIOD_END,
+    )
+    result = AISummaryFilter(FakeAISummaryClient()).process(data)
+    assert result.ai_summary == "Monthly report: 0 runs, 0% success."
