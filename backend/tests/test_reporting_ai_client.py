@@ -47,7 +47,7 @@ def test_summarize_returns_content_from_openai_response():
     })
     fake_client = _patched_client(response)
 
-    with patch("app.reporting.ai_client.httpx.Client", return_value=fake_client):
+    with patch("httpx.Client", return_value=fake_client):
         result = OpenAIAISummaryClient(api_key="sk-test").summarize(
             {"total_runs": 3, "success_rate": 1.0}
         )
@@ -67,7 +67,7 @@ def test_summarize_propagates_http_error_status():
     response = _fake_response({"error": "bad"}, status_code=500)
     fake_client = _patched_client(response)
 
-    with patch("app.reporting.ai_client.httpx.Client", return_value=fake_client):
+    with patch("httpx.Client", return_value=fake_client):
         with pytest.raises(httpx.HTTPStatusError):
             OpenAIAISummaryClient(api_key="sk-test").summarize({"total_runs": 0})
 
@@ -78,7 +78,7 @@ def test_summarize_propagates_network_error():
     fake_client.__exit__.return_value = False
     fake_client.post.side_effect = httpx.ConnectError("down")
 
-    with patch("app.reporting.ai_client.httpx.Client", return_value=fake_client):
+    with patch("httpx.Client", return_value=fake_client):
         with pytest.raises(httpx.ConnectError):
             OpenAIAISummaryClient(api_key="sk-test").summarize({"total_runs": 0})
 
@@ -91,7 +91,7 @@ def test_ai_summary_filter_swallows_openai_failure():
     fake_client.__exit__.return_value = False
     fake_client.post.side_effect = httpx.ConnectError("down")
 
-    with patch("app.reporting.ai_client.httpx.Client", return_value=fake_client):
+    with patch("httpx.Client", return_value=fake_client):
         client = OpenAIAISummaryClient(api_key="sk-test")
         data = PipeData(
             owner_name="a",

@@ -13,8 +13,6 @@ from __future__ import annotations
 import json
 from typing import Protocol
 
-import httpx
-
 _OPENAI_CHAT_URL = "https://api.openai.com/v1/chat/completions"
 _DEFAULT_MODEL = "gpt-4o-mini"
 _DEFAULT_TIMEOUT_S = 15.0
@@ -69,6 +67,8 @@ class OpenAIAISummaryClient:
         self._timeout = timeout_seconds
 
     def summarize(self, metrics: dict) -> str:
+        import httpx  # deferred: httpx is installed at runtime, not baked into the image
+
         payload = {
             "model": self._model,
             "messages": [
