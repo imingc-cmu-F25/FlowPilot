@@ -6,6 +6,7 @@ import { SignUpPage } from "../pages/SignUpPage";
 import { DashboardLayout } from "../components/DashboardLayout";
 import { WorkflowListPage } from "../pages/WorkflowListPage";
 import { WorkflowBuilderPage } from "../pages/WorkflowBuilderPage";
+import { ReportsPage } from "../pages/ReportsPage";
 
 export const router = createBrowserRouter([
   { path: "/", Component: HomePage },
@@ -18,6 +19,7 @@ export const router = createBrowserRouter([
     children: [
       { path: "workflows", Component: WorkflowListPage },
       { path: "workflow/builder/:id?", Component: WorkflowBuilderPage },
+      { path: "reports", Component: ReportsPage },
     ],
   },
 ]);

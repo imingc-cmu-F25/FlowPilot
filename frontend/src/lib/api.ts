@@ -253,3 +253,62 @@ export async function loginUser(
   }
   return { auth: data as AuthResponse };
 }
+
+// Reports
+
+export type ReportStatus = "pending" | "generating" | "completed" | "failed";
+
+export type AggregatedMetrics = {
+  total_runs: number;
+  success_count: number;
+  failure_count: number;
+  success_rate: number;
+  avg_duration_seconds: number;
+  runs_per_workflow: Record<string, number>;
+  top_error_messages: string[];
+};
+
+export type MonthlyReport = {
+  report_id: string;
+  owner_name: string;
+  period_start: string;
+  period_end: string;
+  status: ReportStatus;
+  metrics: AggregatedMetrics;
+  ai_summary: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export async function fetchReportsForOwner(
+  ownerName: string,
+): Promise<MonthlyReport[]> {
+  const res = await apiFetch(
+    `${API_BASE}/reports?owner_name=${encodeURIComponent(ownerName)}`,
+  );
+  const data = await parseBody(res);
+  if (!res.ok) throw new Error(extractDetail(data) ?? res.statusText);
+  return data as MonthlyReport[];
+}
+
+export async function fetchReport(reportId: string): Promise<MonthlyReport> {
+  const res = await apiFetch(`${API_BASE}/reports/${reportId}`);
+  const data = await parseBody(res);
+  if (!res.ok) throw new Error(extractDetail(data) ?? res.statusText);
+  return data as MonthlyReport;
+}
+
+export async function generateReport(payload: {
+  owner_name: string;
+  period_start: string;
+  period_end: string;
+}): Promise<MonthlyReport> {
+  const res = await apiFetch(`${API_BASE}/reports/generate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const data = await parseBody(res);
+  if (!res.ok) throw new Error(extractDetail(data) ?? res.statusText);
+  return data as MonthlyReport;
+}
