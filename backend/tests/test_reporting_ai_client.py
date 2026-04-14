@@ -110,6 +110,8 @@ def test_default_ai_client_picks_fake_when_no_api_key():
 
     with patch("app.reporting.service.settings") as mock_settings:
         mock_settings.openai_api_key = ""
+        mock_settings.openai_base_url = ""
+        mock_settings.openai_model = ""
         assert isinstance(_default_ai_client(), FakeAISummaryClient)
 
 
@@ -118,5 +120,25 @@ def test_default_ai_client_picks_openai_when_key_present():
 
     with patch("app.reporting.service.settings") as mock_settings:
         mock_settings.openai_api_key = "sk-whatever"
+        mock_settings.openai_base_url = ""
+        mock_settings.openai_model = ""
         client = _default_ai_client()
         assert isinstance(client, OpenAIAISummaryClient)
+        # private fields, but this test documents the hard-coded defaults
+        assert client._base_url == "https://api.openai.com/v1/chat/completions"
+        assert client._model == "gpt-4o-mini"
+
+
+def test_default_ai_client_honors_base_url_and_model_overrides():
+    """Pointing at a Groq / Gemini / any OpenAI-compatible provider should
+    only require env vars — no code changes."""
+    from app.reporting.service import _default_ai_client
+
+    with patch("app.reporting.service.settings") as mock_settings:
+        mock_settings.openai_api_key = "gsk_groqkey"
+        mock_settings.openai_base_url = "https://api.groq.com/openai/v1/chat/completions"
+        mock_settings.openai_model = "llama-3.3-70b-versatile"
+        client = _default_ai_client()
+        assert isinstance(client, OpenAIAISummaryClient)
+        assert client._base_url == "https://api.groq.com/openai/v1/chat/completions"
+        assert client._model == "llama-3.3-70b-versatile"

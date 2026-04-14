@@ -32,6 +32,8 @@ class Settings(BaseSettings):
     smtp_from: str = "noreply@flowpilot.local"
 
     openai_api_key: str = ""
+    openai_base_url: str = ""
+    openai_model: str = ""
     google_client_id: str = ""
     google_client_secret: str = ""
 

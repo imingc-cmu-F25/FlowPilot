@@ -62,13 +62,20 @@ class ReportingService:
 def _default_ai_client() -> AISummaryClient:
     """Pick the AI client based on settings.
 
-    If an OpenAI key is configured we hit the real API; otherwise the fake
-    client keeps the pipeline runnable in local dev / CI / tests without
-    network access or secrets.
+    If a key is configured we hit a real Chat-Completions-compatible API;
+    otherwise the fake client keeps the pipeline runnable in local dev / CI
+    / tests without network access or secrets. `openai_base_url` and
+    `openai_model` let users point at any OpenAI-compatible provider
+    (e.g. Groq, Gemini via its OpenAI-compat endpoint) without code changes.
     """
-    if settings.openai_api_key:
-        return OpenAIAISummaryClient(api_key=settings.openai_api_key)
-    return FakeAISummaryClient()
+    if not settings.openai_api_key:
+        return FakeAISummaryClient()
+    kwargs: dict[str, str] = {"api_key": settings.openai_api_key}
+    if settings.openai_base_url:
+        kwargs["base_url"] = settings.openai_base_url
+    if settings.openai_model:
+        kwargs["model"] = settings.openai_model
+    return OpenAIAISummaryClient(**kwargs)
 
 
 def make_reporting_service(db: Session) -> ReportingService:
