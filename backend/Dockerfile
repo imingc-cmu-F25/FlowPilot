@@ -11,6 +11,7 @@ RUN pip install --no-cache-dir \
     celery \
     croniter \
     fastapi \
+    httpx \
     pydantic-settings \
     "psycopg[binary]" \
     redis \

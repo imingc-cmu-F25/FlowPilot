@@ -36,6 +36,20 @@ services:
       - ../backend:/app
     command: /bin/sh -c "uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload & celery -A app.worker.celery_app worker --loglevel=info"
 
+  beat:
+    build:
+      context: ../backend
+    container_name: flowpilot-beat
+    restart: unless-stopped
+    env_file:
+      - ../.env
+    depends_on:
+      - redis
+      - backend
+    volumes:
+      - ../backend:/app
+    command: celery -A app.worker.celery_app beat --loglevel=info
+
   frontend:
     build:
       context: ../frontend
