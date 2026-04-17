@@ -14,7 +14,7 @@ from app.workflow.service import CreateWorkflowCommand, WorkflowService
 from app.workflow.workflow import WorkflowDefinitionBuilder, WorkflowStatus
 from sqlalchemy.orm import sessionmaker
 from tests.test_workflow_service import EMAIL_STEP, TIME_SPEC
-
+from app.trigger.service import TriggerService
 
 @pytest.fixture
 def db_session():
@@ -45,7 +45,7 @@ def _seed_user_and_workflow(session) -> tuple[object, object]:
         steps=[EMAIL_STEP],
         enabled=True,
     )
-    wf = WorkflowService(WorkflowDefinitionBuilder()).create_workflow(cmd)
+    wf = WorkflowService(WorkflowDefinitionBuilder(), TriggerService()).create_workflow(cmd)
     wf = wf.model_copy(update={"status": WorkflowStatus.ACTIVE, "enabled": True})
     saved = WorkflowRepository(session).save(wf)
     session.commit()

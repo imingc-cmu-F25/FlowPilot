@@ -7,7 +7,8 @@ from pydantic import BaseModel
 class TriggerType(StrEnum):
     TIME = "time"
     WEBHOOK = "webhook"
-
+    CUSTOM = "custom"
+    # Add more trigger types here
 
 # API input
 class TriggerSpec(BaseModel):
@@ -15,14 +16,12 @@ class TriggerSpec(BaseModel):
     type: TriggerType
     parameters: dict = {}
 
-
 # Trigger schemas
 class TriggerSchema(BaseModel):
     id: str
     name: str
     description: str
     config_fields: list[dict]
-
 
 # Base Trigger
 class BaseTrigger(ABC):

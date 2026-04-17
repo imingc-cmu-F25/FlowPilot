@@ -1,6 +1,7 @@
 from app.trigger.timeTrigger import TimeTrigger
 from app.trigger.trigger import BaseTrigger
 from app.trigger.webhookTrigger import WebhookTrigger
+from app.trigger.customTrigger import CustomTrigger
 
 
 class TriggerRegistry:
@@ -24,3 +25,5 @@ class TriggerRegistry:
 
 TriggerRegistry.register(TimeTrigger)
 TriggerRegistry.register(WebhookTrigger)
+TriggerRegistry.register(CustomTrigger)
+# Register more triggers here

@@ -52,9 +52,22 @@ class WebhookTriggerConfig(BaseModel):
         if self.method.upper() not in {"GET", "POST", "PUT", "PATCH", "DELETE"}:
             raise ValueError(f"Unsupported HTTP method: {self.method}")
 
+class CustomTriggerConfig(BaseModel):
+    """User-defined condition trigger evaluated against runtime context."""
+    type: Literal[TriggerType.CUSTOM] = TriggerType.CUSTOM
+    trigger_id: UUID = Field(default_factory=uuid4)
+    condition: str
+    source: str = "event_payload"
+    description: str = ""
+
+    def validate_config(self) -> None:
+        if not self.condition.strip():
+            raise ValueError("condition is required")
+
+# Add more trigger configs classes here
 
 # Discriminated union used as WorkflowDefinition.trigger
 TriggerConfig = Annotated[
-    TimeTriggerConfig | WebhookTriggerConfig,
+    TimeTriggerConfig | WebhookTriggerConfig | CustomTriggerConfig, # Add more trigger configs here
     Field(discriminator="type"),
 ]

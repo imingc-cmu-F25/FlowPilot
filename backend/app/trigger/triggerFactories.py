@@ -3,11 +3,11 @@ from datetime import datetime
 
 from app.trigger.recurrence import RecurrenceRule
 from app.trigger.trigger import TriggerSpec, TriggerType
-from app.trigger.triggerConfig import TimeTriggerConfig, WebhookTriggerConfig, TriggerConfig
+from app.trigger.triggerConfig import TimeTriggerConfig, WebhookTriggerConfig, CustomTriggerConfig, TriggerConfig
 
 class TriggerFactory(ABC):
     @abstractmethod
-    def create(self, spec: TriggerSpec) -> TimeTriggerConfig | WebhookTriggerConfig:
+    def create(self, spec: TriggerSpec) -> TimeTriggerConfig | WebhookTriggerConfig | CustomTriggerConfig:
         ...
 
 class TimeTriggerFactory(TriggerFactory):
@@ -47,11 +47,22 @@ class WebhookTriggerFactory(TriggerFactory):
 
         return config
 
+class CustomTriggerFactory(TriggerFactory):
+    def create(self, spec: TriggerSpec) -> CustomTriggerConfig:
+        config = CustomTriggerConfig(
+            condition=spec.parameters.get("condition", ""),
+            source=spec.parameters.get("source", "event_payload"),
+            description=spec.parameters.get("description", ""),
+        )
+        config.validate_config()
+        return config
 
 # Keep all trigger constructors in one registry for easy extension.
 TRIGGER_FACTORIES: dict[TriggerType, TriggerFactory] = {
     TriggerType.TIME: TimeTriggerFactory(),
     TriggerType.WEBHOOK: WebhookTriggerFactory(),
+    TriggerType.CUSTOM: CustomTriggerFactory(),
+    # Add more trigger factories here
 }
 
 # Single entry point for trigger config construction.
