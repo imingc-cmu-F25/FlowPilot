@@ -4,7 +4,7 @@ from pydantic import BaseModel
 
 from app.action.action import ActionStepFactory, StepSpec
 from app.trigger.trigger import TriggerSpec
-from app.trigger.triggerFactories import TRIGGER_FACTORIES
+from app.trigger.triggerFactories import build_trigger_config
 from app.workflow.workflow import IWorkflowBuilder, WorkflowDefinition, WorkflowDefinitionBuilder
 
 
@@ -60,10 +60,7 @@ class WorkflowService:
             updates["enabled"] = cmd.enabled
 
         if cmd.trigger is not None:
-            factory = TRIGGER_FACTORIES.get(cmd.trigger.type)
-            if factory is None:
-                raise ValueError(f"No factory for trigger type: {cmd.trigger.type}")
-            updates["trigger"] = factory.create(cmd.trigger)
+            updates["trigger"] = build_trigger_config(cmd.trigger)
 
         if cmd.steps is not None:
             new_steps = [ActionStepFactory.create(s) for s in cmd.steps]

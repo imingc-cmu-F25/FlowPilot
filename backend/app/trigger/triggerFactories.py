@@ -3,20 +3,19 @@ from datetime import datetime
 
 from app.trigger.recurrence import RecurrenceRule
 from app.trigger.trigger import TriggerSpec, TriggerType
-from app.trigger.triggerConfig import TimeTriggerConfig, WebhookTriggerConfig
-
+from app.trigger.triggerConfig import TimeTriggerConfig, WebhookTriggerConfig, TriggerConfig
 
 class TriggerFactory(ABC):
     @abstractmethod
     def create(self, spec: TriggerSpec) -> TimeTriggerConfig | WebhookTriggerConfig:
         ...
 
-
 class TimeTriggerFactory(TriggerFactory):
     def create(self, spec: TriggerSpec) -> TimeTriggerConfig:
         raw = spec.parameters.get("trigger_at")
         if not raw:
             raise ValueError("trigger_at is required")
+
         trigger_at = datetime.fromisoformat(str(raw))
         if trigger_at.tzinfo is None:
             raise ValueError("trigger_at must be timezone-aware (include UTC offset)")
@@ -32,8 +31,8 @@ class TimeTriggerFactory(TriggerFactory):
             recurrence=recurrence,
         )
         config.validate_config()
-        return config
 
+        return config
 
 class WebhookTriggerFactory(TriggerFactory):
     def create(self, spec: TriggerSpec) -> WebhookTriggerConfig:
@@ -45,11 +44,20 @@ class WebhookTriggerFactory(TriggerFactory):
             header_filters=spec.parameters.get("header_filters", {}),
         )
         config.validate_config()
+
         return config
 
 
-# Registry of factories
+# Keep all trigger constructors in one registry for easy extension.
 TRIGGER_FACTORIES: dict[TriggerType, TriggerFactory] = {
     TriggerType.TIME: TimeTriggerFactory(),
     TriggerType.WEBHOOK: WebhookTriggerFactory(),
 }
+
+# Single entry point for trigger config construction.
+def build_trigger_config(spec: TriggerSpec) -> TriggerConfig:
+    factory = TRIGGER_FACTORIES.get(spec.type)
+    if factory is None:
+        raise ValueError(f"No factory registered for trigger type: {spec.type}")
+
+    return factory.create(spec)

@@ -16,7 +16,6 @@ from app.trigger.triggerFactories import (
 from app.trigger.webhookTrigger import WebhookTrigger
 
 #  RecurrenceRule validation 
-
 class TestRecurrenceRuleValidation:
     def test_daily_valid(self):
         rule = RecurrenceRule(frequency="daily", interval=1)
@@ -57,7 +56,6 @@ class TestRecurrenceRuleValidation:
 
 
 #  RecurrenceRule.is_due 
-
 class TestRecurrenceRuleIsDue:
     BASE = datetime(2026, 1, 1, 9, 0, 0, tzinfo=UTC)  # Thursday
 
@@ -124,7 +122,6 @@ class TestRecurrenceRuleIsDue:
 
 
 #  TimeTriggerConfig 
-
 class TestTimeTriggerConfig:
     def _future(self) -> datetime:
         return datetime.now(UTC) + timedelta(hours=1)
@@ -172,7 +169,6 @@ class TestTimeTriggerConfig:
 
 
 #  WebhookTriggerConfig 
-
 class TestWebhookTriggerConfig:
     def test_valid_config_passes_validation(self):
         cfg = WebhookTriggerConfig(path="/hooks/my-workflow")
@@ -220,7 +216,6 @@ class TestWebhookTriggerConfig:
 
 
 #  TimeTriggerFactory 
-
 class TestTimeTriggerFactory:
     factory = TimeTriggerFactory()
 
@@ -302,7 +297,6 @@ class TestTimeTriggerFactory:
 
 
 #  WebhookTriggerFactory 
-
 class TestWebhookTriggerFactory:
     factory = WebhookTriggerFactory()
 
@@ -344,7 +338,6 @@ class TestWebhookTriggerFactory:
 
 
 #  TRIGGER_FACTORIES registry 
-
 class TestTriggerFactoriesRegistry:
     def test_time_factory_is_registered(self):
         assert TriggerType.TIME in TRIGGER_FACTORIES
@@ -358,9 +351,36 @@ class TestTriggerFactoriesRegistry:
         for t in TriggerType:
             assert t in TRIGGER_FACTORIES, f"Missing factory for {t}"
 
+#  build_trigger_config entry point
+class TestBuildTriggerConfigEntryPoint:
+    def test_builds_time_config_via_registry(self):
+        from app.trigger.triggerFactories import build_trigger_config
+
+        spec = TriggerSpec(
+            type=TriggerType.TIME,
+            parameters={"trigger_at": "2026-05-01T09:00:00+00:00"},
+        )
+
+        cfg = build_trigger_config(spec)
+        assert isinstance(cfg, TimeTriggerConfig)
+
+    def test_unknown_type_raises_value_error(self):
+        from app.trigger.triggerFactories import TRIGGER_FACTORIES, build_trigger_config
+
+        spec = TriggerSpec(
+            type=TriggerType.TIME,
+            parameters={"trigger_at": "2026-05-01T09:00:00+00:00"},
+        )
+
+        # Temporarily remove and restore to validate entry point error path.
+        old = TRIGGER_FACTORIES.pop(TriggerType.TIME)
+        try:
+            with pytest.raises(ValueError, match="No factory registered"):
+                build_trigger_config(spec)
+        finally:
+            TRIGGER_FACTORIES[TriggerType.TIME] = old
 
 #  JSON round-trip 
-
 class TestTriggerConfigRoundTrip:
     def test_time_config_without_recurrence_roundtrips(self):
         from typing import Annotated
