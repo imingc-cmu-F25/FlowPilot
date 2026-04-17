@@ -17,6 +17,7 @@ from app.workflow.run import RunStatus, WorkflowRun
 from app.workflow.run_repo import WorkflowRunRepository
 from app.workflow.service import CreateWorkflowCommand, WorkflowService
 from app.workflow.workflow import WorkflowDefinitionBuilder, WorkflowStatus
+from app.trigger.service import TriggerService
 from sqlalchemy.orm import sessionmaker
 from tests.test_workflow_service import EMAIL_STEP, TIME_SPEC
 
@@ -52,7 +53,7 @@ def _seed_workflow(session, owner: str = "report-owner"):
         steps=[EMAIL_STEP],
         enabled=True,
     )
-    wf = WorkflowService(WorkflowDefinitionBuilder()).create_workflow(cmd)
+    wf = WorkflowService(WorkflowDefinitionBuilder(), TriggerService()).create_workflow(cmd)
     wf = wf.model_copy(update={"status": WorkflowStatus.ACTIVE, "enabled": True})
     saved = WorkflowRepository(session).save(wf)
     session.commit()
