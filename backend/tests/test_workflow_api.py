@@ -68,7 +68,6 @@ def create_workflow(**overrides) -> dict:
 
 
 #  POST /workflows 
-
 class TestCreateWorkflow:
     def test_returns_201(self):
         r = client.post("/api/workflows", json=schedule_payload())
@@ -115,7 +114,6 @@ class TestCreateWorkflow:
 
 
 #  GET /workflows 
-
 class TestListWorkflows:
     def test_empty_list_initially(self):
         r = client.get("/api/workflows")
@@ -137,7 +135,6 @@ class TestListWorkflows:
 
 
 #  GET /workflows/{wf_id} 
-
 class TestGetWorkflow:
     def test_returns_workflow_by_id(self):
         created = create_workflow(name="Fetch Me")
@@ -164,7 +161,6 @@ class TestGetWorkflow:
 
 
 #  PUT /workflows/{wf_id} 
-
 class TestUpdateWorkflow:
     def test_update_name(self):
         created = create_workflow(name="Old Name")
@@ -201,7 +197,6 @@ class TestUpdateWorkflow:
 
 
 #  DELETE /workflows/{wf_id} 
-
 class TestDeleteWorkflow:
     def test_returns_204(self):
         created = create_workflow()
@@ -223,7 +218,6 @@ class TestDeleteWorkflow:
 
 
 #  POST /workflows/{wf_id}/validate 
-
 class TestValidateEndpoint:
     def test_valid_workflow_returns_valid_true(self):
         created = create_workflow()
@@ -245,7 +239,6 @@ class TestValidateEndpoint:
 
 
 #  POST /workflows/{wf_id}/activate 
-
 class TestActivateEndpoint:
     def test_valid_workflow_activates_successfully(self):
         created = create_workflow()
@@ -269,7 +262,6 @@ class TestActivateEndpoint:
 
 
 #  GET /registry/actions 
-
 class TestRegistryEndpoints:
     def test_list_actions_returns_200(self):
         r = client.get("/api/registry/actions")
@@ -298,3 +290,66 @@ class TestRegistryEndpoints:
         r = client.get("/api/registry/triggers")
         ids = [t["id"] for t in r.json()]
         assert "webhook" in ids
+
+# GET /hooks/{hook_path:path}
+class TestWebhookIngest:
+    def test_matching_enabled_webhook_emits_run(self, monkeypatch):
+        # create enabled webhook workflow
+        r = client.post(
+            "/api/workflows",
+            json=webhook_payload(
+                enabled=True,
+                trigger={"type": "webhook", "parameters": {"path": "/hooks/test", "method": "POST"}},
+            ),
+        )
+        assert r.status_code == 201, r.json()
+        wf_id = r.json()["workflow_id"]
+
+        monkeypatch.setattr(
+            "app.trigger.service.enqueue_execute_run",
+            lambda _run_id: None,
+        )
+        
+        # ingest webhook
+        ingest = client.post("/api/hooks/test")
+        assert ingest.status_code == 200
+        body = ingest.json()
+        assert body["matched_workflows"] >= 1
+        assert body["emitted_runs"] >= 1
+
+        # verify run exists
+        runs = client.get(f"/api/workflows/{wf_id}/runs")
+        assert runs.status_code == 200
+        assert any(run["trigger_type"] == "webhook" for run in runs.json())
+
+    def test_non_matching_path_emits_nothing(self):
+        r = client.post(
+            "/api/workflows",
+            json=webhook_payload(
+                enabled=True,
+                trigger={"type": "webhook", "parameters": {"path": "/hooks/a", "method": "POST"}},
+            ),
+        )
+        assert r.status_code == 201, r.json()
+
+        ingest = client.post("/api/hooks/b")
+        assert ingest.status_code == 200
+        body = ingest.json()
+        assert body["matched_workflows"] == 0
+        assert body["emitted_runs"] == 0
+
+    def test_disabled_workflow_not_emitted(self):
+        r = client.post(
+            "/api/workflows",
+            json=webhook_payload(
+                enabled=False,
+                trigger={"type": "webhook", "parameters": {"path": "/hooks/off", "method": "POST"}},
+            ),
+        )
+        assert r.status_code == 201, r.json()
+
+        ingest = client.post("/api/hooks/off")
+        assert ingest.status_code == 200
+        body = ingest.json()
+        assert body["matched_workflows"] == 0
+        assert body["emitted_runs"] == 0

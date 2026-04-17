@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.action.action import ActionStep
 from app.db.schema import WorkflowORM, WorkflowStepORM, WorkflowTriggerORM
-from app.trigger.triggerConfig import TriggerConfig
+from app.trigger.triggerConfig import TriggerConfig, WebhookTriggerConfig
 from app.workflow.workflow import WorkflowDefinition
 
 # TypeAdapters for discriminated-union reconstruction
@@ -87,6 +87,51 @@ class WorkflowRepository:
             self._to_domain(wf, triggers.get(wf.id), steps_by_wf.get(wf.id, []))
             for wf in wf_orms
         ]
+
+    def list_enabled_for_webhook(self, path: str, method: str) -> list[WorkflowDefinition]:
+        """
+        Return enabled workflows whose webhook trigger matches (path, method).
+        """
+        normalized_method = method.upper()
+
+        wf_orms = (
+            self._db.query(WorkflowORM)
+            .join(WorkflowTriggerORM, WorkflowTriggerORM.workflow_id == WorkflowORM.id)
+            .filter(
+                WorkflowORM.enabled.is_(True),
+                WorkflowTriggerORM.type == "webhook",
+            )
+            .all()
+        )
+
+        matched: list[WorkflowDefinition] = []
+        for wf_orm in wf_orms:
+            trigger_orm = (
+                self._db.query(WorkflowTriggerORM)
+                .filter(WorkflowTriggerORM.workflow_id == wf_orm.id)
+                .one_or_none()
+            )
+            if trigger_orm is None:
+                continue
+
+            trigger_cfg = _trigger_adapter.validate_python(trigger_orm.config)
+            if not isinstance(trigger_cfg, WebhookTriggerConfig):
+                continue
+
+            if trigger_cfg.path != path:
+                continue
+            if trigger_cfg.method.upper() != normalized_method:
+                continue
+
+            step_orms = (
+                self._db.query(WorkflowStepORM)
+                .filter(WorkflowStepORM.workflow_id == wf_orm.id)
+                .order_by(WorkflowStepORM.step_order)
+                .all()
+            )
+            matched.append(self._to_domain(wf_orm, trigger_orm, step_orms))
+
+        return matched
 
     #  private helpers
     def _upsert_workflow(self, wf: WorkflowDefinition) -> None:

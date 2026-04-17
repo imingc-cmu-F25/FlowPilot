@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -13,6 +13,7 @@ from app.execution.contracts import enqueue_execute_run
 from app.reporting.repo import ReportRepository
 from app.reporting.service import make_reporting_service
 from app.trigger.triggerRegistry import TriggerRegistry
+from app.trigger.service import TriggerService
 from app.user.repo import UserRepository
 from app.workflow.repo import WorkflowRepository
 from app.workflow.run import RunStatus, WorkflowRun
@@ -212,6 +213,45 @@ def create_workflow_run(
         enqueue_execute_run(created.run_id)
     return {"run_id": str(created.run_id), "status": created.status.value, "enqueued": body.enqueue}
 
+# Webhook
+@api_router.api_route(
+    "/hooks/{hook_path:path}",
+    methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
+    tags=["triggers"],
+)
+async def ingest_webhook(
+    hook_path: str,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """
+    Minimal webhook ingest endpoint:
+    1) match enabled workflows by webhook path/method
+    2) emit workflow runs
+    3) enqueue execution
+    """
+    normalized_path = "/hooks/" + hook_path.lstrip("/")
+    method = request.method.upper()
+
+    wf_repo = WorkflowRepository(db)
+    matched = wf_repo.list_enabled_for_webhook(normalized_path, method)
+
+    trigger_service = TriggerService(run_repo=WorkflowRunRepository(db))
+    emitted = 0
+    for wf in matched:
+        trigger_service.emit_workflow_event(
+            workflow_id=wf.workflow_id,
+            trigger_type="webhook",
+            enqueue=True,
+        )
+        emitted += 1
+
+    return {
+        "path": normalized_path,
+        "method": method,
+        "matched_workflows": len(matched),
+        "emitted_runs": emitted,
+    }
 
 # Registry
 @api_router.get("/registry/actions")
