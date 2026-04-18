@@ -51,7 +51,7 @@ def enqueue_execute_run(run_id: UUID, *, idempotency_key: str | None = None) -> 
     Thin wrapper for teammates — enqueue execution without importing Celery app details.
     Import: `from app.execution.contracts import enqueue_execute_run`
     """
-    from app.execution.tasks import execute_workflow_run
+    from app.worker import celery_app
 
     payload = WorkflowRunTaskPayload(run_id=run_id, idempotency_key=idempotency_key)
-    execute_workflow_run.delay(str(payload.run_id))
+    celery_app.send_task(CELERY_TASK_EXECUTE_RUN, args=[str(payload.run_id)])

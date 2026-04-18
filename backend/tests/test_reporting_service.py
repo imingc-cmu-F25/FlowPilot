@@ -8,6 +8,7 @@ from app.db.connector import get_engine
 from app.reporting.repo import ReportRepository
 from app.reporting.report import ReportStatus
 from app.reporting.service import make_reporting_service
+from app.trigger.service import TriggerService
 from app.user.repo import UserRepository
 from app.workflow.repo import WorkflowRepository
 from app.workflow.run import RunStatus, WorkflowRun
@@ -49,7 +50,7 @@ def _seed_workflow(session, owner: str = "report-owner"):
         steps=[EMAIL_STEP],
         enabled=True,
     )
-    wf = WorkflowService(WorkflowDefinitionBuilder()).create_workflow(cmd)
+    wf = WorkflowService(WorkflowDefinitionBuilder(), TriggerService()).create_workflow(cmd)
     wf = wf.model_copy(update={"status": WorkflowStatus.ACTIVE, "enabled": True})
     saved = WorkflowRepository(session).save(wf)
     session.commit()

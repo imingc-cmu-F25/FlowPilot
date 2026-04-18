@@ -2,21 +2,26 @@
 
 import asyncio
 from datetime import UTC, datetime, timedelta
+from typing import Annotated
 
 import pytest
+from app.trigger.customTrigger import CustomTrigger
 from app.trigger.recurrence import RecurrenceFrequency, RecurrenceRule
 from app.trigger.timeTrigger import TimeTrigger
 from app.trigger.trigger import TriggerSpec, TriggerType
-from app.trigger.triggerConfig import TimeTriggerConfig, WebhookTriggerConfig
+from app.trigger.triggerConfig import CustomTriggerConfig, TimeTriggerConfig, WebhookTriggerConfig
 from app.trigger.triggerFactories import (
     TRIGGER_FACTORIES,
+    CustomTriggerFactory,
     TimeTriggerFactory,
     WebhookTriggerFactory,
+    build_trigger_config,
 )
 from app.trigger.webhookTrigger import WebhookTrigger
+from pydantic import BaseModel, Field
+
 
 #  RecurrenceRule validation 
-
 class TestRecurrenceRuleValidation:
     def test_daily_valid(self):
         rule = RecurrenceRule(frequency="daily", interval=1)
@@ -57,7 +62,6 @@ class TestRecurrenceRuleValidation:
 
 
 #  RecurrenceRule.is_due 
-
 class TestRecurrenceRuleIsDue:
     BASE = datetime(2026, 1, 1, 9, 0, 0, tzinfo=UTC)  # Thursday
 
@@ -124,7 +128,6 @@ class TestRecurrenceRuleIsDue:
 
 
 #  TimeTriggerConfig 
-
 class TestTimeTriggerConfig:
     def _future(self) -> datetime:
         return datetime.now(UTC) + timedelta(hours=1)
@@ -172,7 +175,6 @@ class TestTimeTriggerConfig:
 
 
 #  WebhookTriggerConfig 
-
 class TestWebhookTriggerConfig:
     def test_valid_config_passes_validation(self):
         cfg = WebhookTriggerConfig(path="/hooks/my-workflow")
@@ -218,9 +220,22 @@ class TestWebhookTriggerConfig:
         assert cfg.event_filter == "push"
         assert cfg.header_filters == {"X-Source": "github"}
 
+#  CustomTriggerConfig 
+class TestCustomTriggerConfig:
+    def test_valid_config_passes_validation(self):
+        cfg = CustomTriggerConfig(condition="true")
+        cfg.validate_config()
+
+    def test_empty_condition_raises(self):
+        cfg = CustomTriggerConfig(condition="   ")
+        with pytest.raises(ValueError, match="condition is required"):
+            cfg.validate_config()
+
+    def test_type_discriminator_is_custom(self):
+        cfg = CustomTriggerConfig(condition="true")
+        assert cfg.type == TriggerType.CUSTOM
 
 #  TimeTriggerFactory 
-
 class TestTimeTriggerFactory:
     factory = TimeTriggerFactory()
 
@@ -302,7 +317,6 @@ class TestTimeTriggerFactory:
 
 
 #  WebhookTriggerFactory 
-
 class TestWebhookTriggerFactory:
     factory = WebhookTriggerFactory()
 
@@ -342,9 +356,34 @@ class TestWebhookTriggerFactory:
         with pytest.raises(ValueError, match="path must start with /"):
             self.factory.create(spec)
 
+#  CustomTriggerFactory 
+class TestCustomTriggerFactory:
+    factory = CustomTriggerFactory()
+
+    def test_creates_custom_config(self):
+        spec = TriggerSpec(
+            type=TriggerType.CUSTOM,
+            parameters={"condition": "true"},
+        )
+        cfg = self.factory.create(spec)
+        assert isinstance(cfg, CustomTriggerConfig)
+        assert cfg.condition == "true"
+
+    def test_defaults_source_and_description(self):
+        spec = TriggerSpec(
+            type=TriggerType.CUSTOM,
+            parameters={"condition": "true"},
+        )
+        cfg = self.factory.create(spec)
+        assert cfg.source == "event_payload"
+        assert cfg.description == ""
+
+    def test_missing_condition_raises(self):
+        spec = TriggerSpec(type=TriggerType.CUSTOM, parameters={})
+        with pytest.raises(ValueError, match="condition is required"):
+            self.factory.create(spec)
 
 #  TRIGGER_FACTORIES registry 
-
 class TestTriggerFactoriesRegistry:
     def test_time_factory_is_registered(self):
         assert TriggerType.TIME in TRIGGER_FACTORIES
@@ -358,17 +397,55 @@ class TestTriggerFactoriesRegistry:
         for t in TriggerType:
             assert t in TRIGGER_FACTORIES, f"Missing factory for {t}"
 
+#  build_trigger_config entry point
+class TestBuildTriggerConfigEntryPoint:
+    def test_builds_time_config_via_registry(self):
+
+        spec = TriggerSpec(
+            type=TriggerType.TIME,
+            parameters={"trigger_at": "2026-05-01T09:00:00+00:00"},
+        )
+
+        cfg = build_trigger_config(spec)
+        assert isinstance(cfg, TimeTriggerConfig)
+
+    def test_builds_webhook_config_via_registry(self):
+        spec = TriggerSpec(
+            type=TriggerType.WEBHOOK,
+            parameters={"path": "/hooks/gh"},
+        )
+        cfg = build_trigger_config(spec)
+        assert isinstance(cfg, WebhookTriggerConfig)
+
+    def test_builds_custom_config_via_registry(self):
+
+        spec = TriggerSpec(
+            type=TriggerType.CUSTOM,
+            parameters={"condition": "true"},
+        )
+        cfg = build_trigger_config(spec)
+        assert isinstance(cfg, CustomTriggerConfig)
+
+    def test_unknown_type_raises_value_error(self):
+
+        spec = TriggerSpec(
+            type=TriggerType.TIME,
+            parameters={"trigger_at": "2026-05-01T09:00:00+00:00"},
+        )
+
+        # Temporarily remove and restore to validate entry point error path.
+        old = TRIGGER_FACTORIES.pop(TriggerType.TIME)
+        try:
+            with pytest.raises(ValueError, match="No factory registered"):
+                build_trigger_config(spec)
+        finally:
+            TRIGGER_FACTORIES[TriggerType.TIME] = old
 
 #  JSON round-trip 
-
 class TestTriggerConfigRoundTrip:
     def test_time_config_without_recurrence_roundtrips(self):
-        from typing import Annotated
-
-        from pydantic import BaseModel, Field
-
         TriggerConfigUnion = Annotated[
-            TimeTriggerConfig | WebhookTriggerConfig,
+            TimeTriggerConfig | WebhookTriggerConfig | CustomTriggerConfig,
             Field(discriminator="type"),
         ]
 
@@ -383,12 +460,8 @@ class TestTriggerConfigRoundTrip:
         assert restored.trigger.recurrence is None
 
     def test_time_config_with_recurrence_roundtrips(self):
-        from typing import Annotated
-
-        from pydantic import BaseModel, Field
-
         TriggerConfigUnion = Annotated[
-            TimeTriggerConfig | WebhookTriggerConfig,
+            TimeTriggerConfig | WebhookTriggerConfig | CustomTriggerConfig,
             Field(discriminator="type"),
         ]
 
@@ -406,12 +479,8 @@ class TestTriggerConfigRoundTrip:
         assert restored.trigger.recurrence.days_of_week == [0, 4]
 
     def test_webhook_config_roundtrips(self):
-        from typing import Annotated
-
-        from pydantic import BaseModel, Field
-
         TriggerConfigUnion = Annotated[
-            TimeTriggerConfig | WebhookTriggerConfig,
+            TimeTriggerConfig | WebhookTriggerConfig | CustomTriggerConfig,
             Field(discriminator="type"),
         ]
 
@@ -423,6 +492,21 @@ class TestTriggerConfigRoundTrip:
         restored = Wrapper.model_validate(w.model_dump(mode="json"))
         assert isinstance(restored.trigger, WebhookTriggerConfig)
         assert restored.trigger.path == "/hooks/test"
+    
+    def test_custom_config_roundtrips(self):
+        TriggerConfigUnion = Annotated[
+            TimeTriggerConfig | WebhookTriggerConfig | CustomTriggerConfig,
+            Field(discriminator="type"),
+        ]
+
+        class Wrapper(BaseModel):
+            trigger: TriggerConfigUnion  # type: ignore[valid-type]
+
+        cfg = CustomTriggerConfig(condition="true", source="event_payload")
+        w = Wrapper(trigger=cfg)
+        restored = Wrapper.model_validate(w.model_dump(mode="json"))
+        assert isinstance(restored.trigger, CustomTriggerConfig)
+        assert restored.trigger.condition == "true"
 
 
 #  Runtime evaluators 
@@ -468,3 +552,17 @@ class TestWebhookTriggerEvaluate:
 
     def test_schema_id_is_webhook(self):
         assert WebhookTrigger.schema.id == "webhook"
+
+class TestCustomTriggerEvaluate:
+    def test_true_condition_returns_true(self):
+        trigger = CustomTrigger()
+        cfg = CustomTriggerConfig(condition="true")
+        assert asyncio.run(trigger.evaluate({"config": cfg})) is True
+
+    def test_false_condition_returns_false(self):
+        trigger = CustomTrigger()
+        cfg = CustomTriggerConfig(condition="false")
+        assert asyncio.run(trigger.evaluate({"config": cfg})) is False
+        
+    def test_schema_id_is_custom(self):
+        assert CustomTrigger.schema.id == "custom"

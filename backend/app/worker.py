@@ -8,5 +8,9 @@ celery_app = Celery(
     broker=settings.redis_url,
     backend=settings.redis_url,
 )
-celery_app.autodiscover_tasks(["app.execution", "app.reporting"])
+celery_app.autodiscover_tasks(["app.execution", "app.reporting", "app.trigger"])
 celery_app.conf.beat_schedule = BEAT_SCHEDULE
+celery_app.conf.beat_schedule["trigger-dispatch-time-triggers"] = {
+    "task": "trigger.dispatch_time_triggers",
+    "schedule": 60.0,  # every minute
+}

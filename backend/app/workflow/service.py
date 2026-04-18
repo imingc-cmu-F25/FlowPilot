@@ -3,8 +3,8 @@ from datetime import UTC, datetime
 from pydantic import BaseModel
 
 from app.action.action import ActionStepFactory, StepSpec
+from app.trigger.service import TriggerService
 from app.trigger.trigger import TriggerSpec
-from app.trigger.triggerFactories import TRIGGER_FACTORIES
 from app.workflow.workflow import IWorkflowBuilder, WorkflowDefinition, WorkflowDefinitionBuilder
 
 
@@ -33,8 +33,9 @@ class WorkflowService:
     Uses model_copy for partial updates (preserves existing fields).
     """
 
-    def __init__(self, builder: IWorkflowBuilder) -> None:
+    def __init__(self, builder: IWorkflowBuilder, trigger_service: TriggerService) -> None:
         self._builder = builder
+        self._trigger_service = trigger_service
 
     def create_workflow(self, cmd: CreateWorkflowCommand) -> WorkflowDefinition:
         b = self._builder
@@ -60,10 +61,7 @@ class WorkflowService:
             updates["enabled"] = cmd.enabled
 
         if cmd.trigger is not None:
-            factory = TRIGGER_FACTORIES.get(cmd.trigger.type)
-            if factory is None:
-                raise ValueError(f"No factory for trigger type: {cmd.trigger.type}")
-            updates["trigger"] = factory.create(cmd.trigger)
+            updates["trigger"] = self._trigger_service.build_config(cmd.trigger)
 
         if cmd.steps is not None:
             new_steps = [ActionStepFactory.create(s) for s in cmd.steps]
@@ -74,4 +72,4 @@ class WorkflowService:
 
 def make_workflow_service() -> WorkflowService:
     """FastAPI dependency factory — returns a fresh service per request."""
-    return WorkflowService(WorkflowDefinitionBuilder())
+    return WorkflowService(WorkflowDefinitionBuilder(), TriggerService())

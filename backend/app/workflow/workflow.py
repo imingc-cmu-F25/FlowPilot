@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 from app.action.action import ActionStep, ActionStepFactory, StepSpec
 from app.trigger.trigger import TriggerSpec
 from app.trigger.triggerConfig import TriggerConfig
-from app.trigger.triggerFactories import TRIGGER_FACTORIES
+from app.trigger.triggerFactories import build_trigger_config
 
 
 class WorkflowStatus(StrEnum):
@@ -92,10 +92,7 @@ class WorkflowDefinitionBuilder(IWorkflowBuilder):
 
     def set_trigger(self, spec: TriggerSpec) -> None:
         self._require_reset()
-        factory = TRIGGER_FACTORIES.get(spec.type)
-        if factory is None:
-            raise ValueError(f"No factory registered for trigger type: {spec.type}")
-        self._draft["trigger"] = factory.create(spec)
+        self._draft["trigger"] = build_trigger_config(spec)
 
     def add_step(self, spec: StepSpec) -> None:
         self._require_reset()
