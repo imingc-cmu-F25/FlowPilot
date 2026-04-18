@@ -8,6 +8,7 @@ know the internal file layout:
 """
 
 from app.db.schema.report import ReportORM
+from app.db.schema.suggestion import SuggestionORM
 from app.db.schema.user import UserORM, UserSessionORM
 from app.db.schema.user_action import UserActionORM
 from app.db.schema.user_trigger import UserTriggerORM
@@ -18,6 +19,7 @@ from app.db.schema.workflow_trigger import WorkflowTriggerORM
 
 __all__ = [
     "ReportORM",
+    "SuggestionORM",
     "UserORM",
     "UserSessionORM",
     "UserTriggerORM",

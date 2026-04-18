@@ -12,6 +12,7 @@ import { WorkflowNodeCard } from "../components/workflow-builder/WorkflowNodeCar
 import type { NodeConfig } from "../components/workflow-builder/nodeConfig";
 import { defaultConfigFor } from "../components/workflow-builder/nodeConfig";
 import {
+  createSuggestion,
   createWorkflow,
   fetchWorkflow,
   updateWorkflow,
@@ -34,6 +35,8 @@ interface ChatMessage {
   id: string;
   role: "user" | "assistant";
   content: string;
+  workflowDraft?: WorkflowDefinition | null;
+  suggestionId?: string;
 }
 
 interface TimeRecurrence {
@@ -73,6 +76,7 @@ export function WorkflowBuilderPage() {
   const [showAIChat, setShowAIChat] = useState(false);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>(INITIAL_CHAT);
   const [chatInput, setChatInput] = useState("");
+  const [chatLoading, setChatLoading] = useState(false);
   const [nodes, setNodes] = useState<WorkflowNode[]>([]);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -431,21 +435,51 @@ export function WorkflowBuilderPage() {
     }
   };
 
-  const sendChatMessage = () => {
-    if (!chatInput.trim()) return;
+  const sendChatMessage = async () => {
+    const text = chatInput.trim();
+    if (!text || chatLoading) return;
     const userMsg: ChatMessage = {
       id: Date.now().toString(),
       role: "user",
-      content: chatInput,
+      content: text,
     };
-    const assistantMsg: ChatMessage = {
-      id: (Date.now() + 1).toString(),
-      role: "assistant",
-      content:
-        "I understand. Let me help you with that. (This is a demo response - in a real implementation, this would connect to an AI service.)",
-    };
-    setChatMessages([...chatMessages, userMsg, assistantMsg]);
+    setChatMessages((prev) => [...prev, userMsg]);
     setChatInput("");
+    setChatLoading(true);
+    try {
+      const res = await createSuggestion({
+        raw_text: text,
+        user_name: getStoredUsername() ?? null,
+      });
+      const assistantMsg: ChatMessage = {
+        id: res.id,
+        role: "assistant",
+        content: res.content,
+        workflowDraft: res.workflow_draft,
+        suggestionId: res.id,
+      };
+      setChatMessages((prev) => [...prev, assistantMsg]);
+    } catch (e) {
+      setChatMessages((prev) => [
+        ...prev,
+        {
+          id: `${Date.now()}-err`,
+          role: "assistant",
+          content:
+            e instanceof Error
+              ? `Sorry, I couldn't generate a suggestion: ${e.message}`
+              : "Sorry, I couldn't generate a suggestion.",
+        },
+      ]);
+    } finally {
+      setChatLoading(false);
+    }
+  };
+
+  const applyDraftToCanvas = (draft: WorkflowDefinition) => {
+    if (draft.name) setWorkflowName(draft.name);
+    setNodes(mapWorkflowToNodes(draft));
+    setSelectedNode(null);
   };
 
   return (
@@ -541,6 +575,8 @@ export function WorkflowBuilderPage() {
               onInputChange={setChatInput}
               onSend={sendChatMessage}
               onClose={() => setShowAIChat(false)}
+              onApplyDraft={applyDraftToCanvas}
+              loading={chatLoading}
             />
           </div>
         </>

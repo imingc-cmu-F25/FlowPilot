@@ -12,6 +12,9 @@ from app.db.session import get_db
 from app.execution.contracts import enqueue_execute_run
 from app.reporting.repo import ReportRepository
 from app.reporting.service import make_reporting_service
+from app.suggestion.base import UserInput
+from app.suggestion.repo import SuggestionRepository
+from app.suggestion.service import SuggestionService
 from app.trigger.service import TriggerService
 from app.trigger.triggerRegistry import TriggerRegistry
 from app.user.repo import UserRepository
@@ -307,3 +310,69 @@ def generate_report(body: GenerateReportBody, db: Session = Depends(get_db)):
         period_end=body.period_end,
     )
     return report
+
+
+# AI Suggestions
+class CreateSuggestionBody(BaseModel):
+    raw_text: str = Field(min_length=1)
+    user_name: str | None = None
+
+
+def _serialize_suggestion(orm) -> dict:
+    return {
+        "id": str(orm.id),
+        "user_name": orm.user_name,
+        "raw_text": orm.raw_text,
+        "strategy_used": orm.strategy_used,
+        "analysis": orm.analysis,
+        "content": orm.content,
+        "workflow_draft": orm.workflow_draft,
+        "created_at": orm.created_at.isoformat() if orm.created_at else None,
+        "accepted_workflow_id": (
+            str(orm.accepted_workflow_id) if orm.accepted_workflow_id else None
+        ),
+    }
+
+
+@api_router.post("/suggestions", status_code=201, tags=["suggestions"])
+async def create_suggestion(body: CreateSuggestionBody, db: Session = Depends(get_db)):
+    service = SuggestionService(db)
+    user_input = UserInput(raw_text=body.raw_text, user_name=body.user_name)
+    try:
+        orm = await service.suggest(user_input)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(500, detail={"message": f"Suggestion failed: {exc!s}"})
+    return _serialize_suggestion(orm)
+
+
+@api_router.get("/suggestions", tags=["suggestions"])
+def list_suggestions(user_name: str, db: Session = Depends(get_db)):
+    repo = SuggestionRepository(db)
+    return [_serialize_suggestion(s) for s in repo.list_for_user(user_name)]
+
+
+@api_router.get("/suggestions/{suggestion_id}", tags=["suggestions"])
+def get_suggestion(suggestion_id: UUID, db: Session = Depends(get_db)):
+    repo = SuggestionRepository(db)
+    orm = repo.get(suggestion_id)
+    if orm is None:
+        raise HTTPException(404, detail="Suggestion not found")
+    return _serialize_suggestion(orm)
+
+
+@api_router.post("/suggestions/{suggestion_id}/accept", tags=["suggestions"])
+def accept_suggestion(suggestion_id: UUID, db: Session = Depends(get_db)):
+    repo = SuggestionRepository(db)
+    orm = repo.get(suggestion_id)
+    if orm is None:
+        raise HTTPException(404, detail="Suggestion not found")
+    if not orm.workflow_draft:
+        raise HTTPException(422, detail="Suggestion has no workflow draft to accept")
+    return {
+        "suggestion_id": str(orm.id),
+        "workflow_draft": orm.workflow_draft,
+        "hint": (
+            "POST the draft to /api/workflows to create it, then call "
+            "/suggestions/{id}/accept/link to record the accepted workflow id."
+        ),
+    }
