@@ -39,7 +39,11 @@ def test_analyzer_classifies_webhook_as_simple():
 
 
 def test_analyzer_medium_with_action_keyword():
-    result = asyncio.run(AIAnalyzer().analyze(UserInput(raw_text="send email to team after 5 minutes")))
+    result = asyncio.run(
+        AIAnalyzer().analyze(
+            UserInput(raw_text="send email to team after 5 minutes")
+        )
+    )
     assert result.complexity_level == "medium"
     assert result.confidence >= 0.7
     assert result.input_type == "automation_request"

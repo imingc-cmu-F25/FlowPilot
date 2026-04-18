@@ -227,7 +227,11 @@ class _ScheduledHttpPingTemplate:
     def fill(self, params: dict) -> dict:
         return {
             "name": "Scheduled HTTP Ping",
-            "description": f"Pings {params['url'] or 'endpoint'} every hour starting at {params['hour']}:00 UTC.",
+            "description": (
+                f"Pings {params['url'] or 'endpoint'}"
+                f" every hour starting at"
+                f" {params['hour']}:00 UTC."
+            ),
             "trigger": {
                 "type": "time",
                 "trigger_at": _next_iso_at_hour(params["hour"]),
@@ -352,7 +356,12 @@ class _DelayedEmailTemplate:
             "minutes": minutes,
             "to": _extract_email(text),
             "subject": _extract_subject(text) or "Scheduled Notification",
-            "body": _extract_body(text) or f"This is your scheduled email, sent {minutes} minutes after creation.",
+            "body": (
+                _extract_body(text)
+                or f"This is your scheduled email,"
+                f" sent {minutes} minutes"
+                f" after creation."
+            ),
         }
 
     def fill(self, params: dict) -> dict:

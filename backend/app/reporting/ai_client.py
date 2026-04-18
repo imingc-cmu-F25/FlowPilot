@@ -15,7 +15,11 @@ from typing import Protocol
 
 from app.core.config import settings as _settings
 
-_OPENAI_CHAT_URL = _settings.openai_base_url + "/chat/completions" if _settings.openai_base_url else "https://api.openai.com/v1/chat/completions"
+_OPENAI_CHAT_URL = (
+    _settings.openai_base_url + "/chat/completions"
+    if _settings.openai_base_url
+    else "https://api.openai.com/v1/chat/completions"
+)
 _DEFAULT_MODEL = _settings.openai_model or "gpt-4o-mini"
 _DEFAULT_TIMEOUT_S = 15.0
 _SYSTEM_PROMPT = (

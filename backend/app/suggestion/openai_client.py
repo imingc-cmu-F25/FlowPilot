@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from app.core.config import settings
 
-
 _cached_client = None
 _cached_key = None
 

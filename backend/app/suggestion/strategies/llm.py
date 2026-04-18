@@ -18,19 +18,34 @@ _WORKFLOW_SCHEMA = {
             "type": "object",
             "properties": {
                 "name": {"type": "string", "description": "Short descriptive workflow name"},
-                "description": {"type": "string", "description": "One-sentence description of what the workflow does"},
+                "description": {
+                    "type": "string",
+                    "description": (
+                        "One-sentence description of"
+                        " what the workflow does"
+                    ),
+                },
                 "trigger": {
                     "type": "object",
                     "properties": {
                         "type": {
                             "type": "string",
                             "enum": ["time", "webhook", "custom"],
-                            "description": "time=scheduled/delayed, webhook=HTTP event-driven, custom=condition-based",
+                            "description": (
+                                "time=scheduled/delayed,"
+                                " webhook=HTTP event-driven,"
+                                " custom=condition-based"
+                            ),
                         },
                         # time trigger fields
                         "trigger_at": {
                             "type": "string",
-                            "description": "ISO-8601 UTC datetime when workflow fires (required for type=time). Example: 2026-04-18T20:00:00+00:00",
+                            "description": (
+                                "ISO-8601 UTC datetime when"
+                                " workflow fires (required"
+                                " for type=time). Example:"
+                                " 2026-04-18T20:00:00+00:00"
+                            ),
                         },
                         "timezone": {
                             "type": "string",
@@ -38,7 +53,11 @@ _WORKFLOW_SCHEMA = {
                         },
                         "recurrence": {
                             "type": "object",
-                            "description": "Optional recurring schedule. Omit or set null for one-time triggers.",
+                            "description": (
+                                "Optional recurring schedule."
+                                " Omit or set null for"
+                                " one-time triggers."
+                            ),
                             "properties": {
                                 "frequency": {
                                     "type": "string",
@@ -46,34 +65,69 @@ _WORKFLOW_SCHEMA = {
                                 },
                                 "interval": {
                                     "type": "integer",
-                                    "description": "Repeat every N units (e.g. interval=2 with daily = every 2 days)",
+                                    "description": (
+                                        "Repeat every N units"
+                                        " (e.g. interval=2 with"
+                                        " daily = every 2 days)"
+                                    ),
                                 },
                                 "days_of_week": {
                                     "type": "array",
                                     "items": {"type": "integer"},
-                                    "description": "For weekly: 0=Mon, 1=Tue, ..., 6=Sun. Example: [0,4] = Monday and Friday",
+                                    "description": (
+                                        "For weekly: 0=Mon,"
+                                        " 1=Tue, ..., 6=Sun."
+                                        " Example: [0,4] ="
+                                        " Monday and Friday"
+                                    ),
                                 },
                                 "cron_expression": {
                                     "type": "string",
-                                    "description": "For frequency=custom: cron expression, e.g. '0 9 * * 1-5' = 9am weekdays",
+                                    "description": (
+                                "For frequency=custom: cron"
+                                " expression, e.g."
+                                " '0 9 * * 1-5' ="
+                                " 9am weekdays"
+                            ),
                                 },
                             },
                         },
                         # webhook trigger fields
                         "path": {
                             "type": "string",
-                            "description": "URL path for webhook (required for type=webhook), must start with /",
+                            "description": (
+                                "URL path for webhook"
+                                " (required for"
+                                " type=webhook),"
+                                " must start with /"
+                            ),
                         },
                         "method": {
                             "type": "string",
                             "description": "HTTP method for webhook: GET, POST, PUT, PATCH, DELETE",
                         },
-                        "secret_ref": {"type": "string", "description": "Secret reference for webhook HMAC verification"},
-                        "event_filter": {"type": "string", "description": "Match against X-Event-Type header"},
+                        "secret_ref": {
+                            "type": "string",
+                            "description": (
+                                "Secret reference for"
+                                " webhook HMAC verification"
+                            ),
+                        },
+                        "event_filter": {
+                            "type": "string",
+                            "description": (
+                                "Match against"
+                                " X-Event-Type header"
+                            ),
+                        },
                         # custom trigger fields
                         "condition": {
                             "type": "string",
-                            "description": "Condition expression for custom trigger (required for type=custom)",
+                            "description": (
+                                "Condition expression for"
+                                " custom trigger (required"
+                                " for type=custom)"
+                            ),
                         },
                         "source": {
                             "type": "string",
@@ -84,7 +138,13 @@ _WORKFLOW_SCHEMA = {
                 },
                 "steps": {
                     "type": "array",
-                    "description": "Ordered list of action steps. Steps execute sequentially and can reference prior step outputs via {{previous_output}}.",
+                    "description": (
+                        "Ordered list of action steps."
+                        " Steps execute sequentially"
+                        " and can reference prior step"
+                        " outputs via"
+                        " {{previous_output}}."
+                    ),
                     "items": {
                         "type": "object",
                         "properties": {
@@ -93,29 +153,67 @@ _WORKFLOW_SCHEMA = {
                                 "enum": ["send_email", "http_request", "calendar_create_event"],
                                 "description": "Type of action to perform",
                             },
-                            "name": {"type": "string", "description": "Short descriptive step name"},
-                            "step_order": {"type": "integer", "description": "Execution order, 0-based"},
+                            "name": {
+                                "type": "string",
+                                "description": (
+                                    "Short descriptive"
+                                    " step name"
+                                ),
+                            },
+                            "step_order": {
+                                "type": "integer",
+                                "description": (
+                                    "Execution order,"
+                                    " 0-based"
+                                ),
+                            },
                             # send_email fields
                             "to_template": {
                                 "type": "string",
-                                "description": "Email recipient address (for send_email). Supports {{variable}} placeholders.",
+                                "description": (
+                                    "Email recipient address"
+                                    " (for send_email)."
+                                    " Supports {{variable}}"
+                                    " placeholders."
+                                ),
                             },
                             "subject_template": {
                                 "type": "string",
-                                "description": "Email subject line (for send_email). Supports {{variable}} placeholders.",
+                                "description": (
+                                    "Email subject line"
+                                    " (for send_email)."
+                                    " Supports {{variable}}"
+                                    " placeholders."
+                                ),
                             },
                             "body_template": {
                                 "type": "string",
-                                "description": "Email body content (for send_email). Use {{previous_output}} to include data from prior steps.",
+                                "description": (
+                                    "Email body content"
+                                    " (for send_email). Use"
+                                    " {{previous_output}} to"
+                                    " include data from"
+                                    " prior steps."
+                                ),
                             },
                             # http_request fields
                             "method": {
                                 "type": "string",
-                                "description": "HTTP method for http_request: GET, POST, PUT, PATCH, DELETE",
+                                "description": (
+                                    "HTTP method for"
+                                    " http_request: GET,"
+                                    " POST, PUT, PATCH,"
+                                    " DELETE"
+                                ),
                             },
                             "url_template": {
                                 "type": "string",
-                                "description": "Target URL (for http_request). Supports {{variable}} placeholders.",
+                                "description": (
+                                    "Target URL (for"
+                                    " http_request). Supports"
+                                    " {{variable}}"
+                                    " placeholders."
+                                ),
                             },
                             "headers": {
                                 "type": "object",
@@ -128,15 +226,30 @@ _WORKFLOW_SCHEMA = {
                             },
                             "title_template": {
                                 "type": "string",
-                                "description": "Event title (for calendar_create_event). Supports {{variable}} placeholders.",
+                                "description": (
+                                    "Event title (for"
+                                    " calendar_create_event)."
+                                    " Supports {{variable}}"
+                                    " placeholders."
+                                ),
                             },
                             "start_mapping": {
                                 "type": "string",
-                                "description": "JSONPath to start datetime from prior step output (for calendar_create_event)",
+                                "description": (
+                                    "JSONPath to start"
+                                    " datetime from prior"
+                                    " step output (for"
+                                    " calendar_create_event)"
+                                ),
                             },
                             "end_mapping": {
                                 "type": "string",
-                                "description": "JSONPath to end datetime from prior step output (for calendar_create_event)",
+                                "description": (
+                                    "JSONPath to end"
+                                    " datetime from prior"
+                                    " step output (for"
+                                    " calendar_create_event)"
+                                ),
                             },
                         },
                         "required": ["action_type", "name", "step_order"],
@@ -153,7 +266,8 @@ class LLMStrategy(SuggestionStrategy):
     """Calls OpenAI function calling to generate a structured workflow draft."""
 
     SYSTEM_PROMPT = (
-        "You are FlowPilot's intelligent workflow builder. The current UTC time is {current_utc}.\n\n"
+        "You are FlowPilot's intelligent workflow builder. "
+        "The current UTC time is {current_utc}.\n\n"
         "Your job: convert the user's natural-language request into a COMPLETE, READY-TO-USE "
         "workflow definition by calling the build_workflow function.\n\n"
         "## Platform capabilities\n"
@@ -169,7 +283,8 @@ class LLMStrategy(SuggestionStrategy):
         "**Chaining**: steps run in order. Later steps can reference earlier step outputs "
         "using `{{{{previous_output}}}}` in any template field.\n\n"
         "## Rules\n"
-        "1. ALWAYS fill in every field with concrete, meaningful values derived from the user's request. "
+        "1. ALWAYS fill in every field with concrete, meaningful "
+        "values derived from the user's request. "
         "NEVER use generic placeholders like 'recipient@example.com', 'Message body.', or 'https://example.com'.\n"
         "2. Give the workflow a short, descriptive name summarizing what it does.\n"
         "3. Write a clear one-sentence description.\n"
@@ -191,14 +306,18 @@ class LLMStrategy(SuggestionStrategy):
         "   - Write subject and body that match the user's purpose. Be specific and helpful.\n"
         "8. For HTTP_REQUEST steps:\n"
         "   - Use the URL from the request if provided. Set appropriate method and headers.\n"
-        "   - For API calls that return data, chain with a subsequent step that uses {{{{previous_output}}}}.\n"
+        "   - For API calls that return data, chain with a "
+        "subsequent step that uses {{{{previous_output}}}}.\n"
         "9. For CALENDAR_CREATE_EVENT steps:\n"
         "   - Set calendar_id, title_template, start_mapping, and end_mapping.\n"
         "10. Combine multiple steps for complex requests. Examples:\n"
         "    - 'Check API health and alert me' → http_request + send_email\n"
-        "    - 'Fetch weather and email report' → http_request + send_email with {{{{previous_output}}}}\n"
-        "    - 'When webhook fires, call API and create calendar event' → http_request + calendar_create_event\n"
-        "11. Think about what the user actually wants to achieve and build the best workflow for it."
+        "    - 'Fetch weather and email report' → "
+        "http_request + send_email with {{{{previous_output}}}}\n"
+        "    - 'When webhook fires, call API and create "
+        "calendar event' → http_request + calendar_create_event\n"
+        "11. Think about what the user actually wants to "
+        "achieve and build the best workflow for it."
     )
 
     async def generate_suggestion(self, user_input: UserInput) -> SuggestionResult:

@@ -107,7 +107,10 @@ def test_rule_based_matches_health_check_alert():
     strategy = RuleBasedStrategy()
     result = asyncio.run(
         strategy.generate_suggestion(
-            UserInput(raw_text="check health https://api.example.com/health and email alert to admin@acme.com")
+            UserInput(
+                raw_text="check health https://api.example.com/health"
+                " and email alert to admin@acme.com"
+            )
         )
     )
     assert result.workflow_draft is not None
@@ -122,7 +125,10 @@ def test_rule_based_matches_fetch_and_email():
     strategy = RuleBasedStrategy()
     result = asyncio.run(
         strategy.generate_suggestion(
-            UserInput(raw_text="fetch data from https://api.example.com/report and email to boss@acme.com")
+            UserInput(
+                raw_text="fetch data from https://api.example.com/report"
+                " and email to boss@acme.com"
+            )
         )
     )
     assert result.workflow_draft is not None

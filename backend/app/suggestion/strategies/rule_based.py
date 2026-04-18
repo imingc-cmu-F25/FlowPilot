@@ -85,7 +85,11 @@ def _build_delayed_email_draft(text: str) -> dict:
     minutes = _extract_minutes(text) or 5
     to = _extract_email(text)
     subject = _extract_subject(text) or "Scheduled Notification"
-    body = _extract_body(text) or f"This is your scheduled email, sent {minutes} minutes after creation."
+    body = (
+        _extract_body(text)
+        or f"This is your scheduled email, sent"
+        f" {minutes} minutes after creation."
+    )
     return {
         "name": f"Send Email After {minutes} Minutes",
         "description": f"Sends an email {minutes} minutes from now.",
@@ -261,12 +265,20 @@ def _build_health_check_draft(text: str) -> dict:
     to = _extract_email(text)
     subject = _extract_subject(text) or "Health Check Result"
     body = _extract_body(text) or "Health check result:\n\n{{previous_output}}"
-    interval, unit = _extract_interval(text) if re.search(r"every|each", text.lower()) else (1, "hour")
+    interval, unit = (
+        _extract_interval(text)
+        if re.search(r"every|each", text.lower())
+        else (1, "hour")
+    )
     freq_map = {"minute": "minutely", "hour": "hourly", "day": "daily", "week": "weekly"}
     frequency = freq_map.get(unit, "hourly")
     return {
         "name": "Health Check & Alert",
-        "description": f"Checks {url or 'endpoint'} every {interval} {unit}(s) and sends an alert email.",
+        "description": (
+            f"Checks {url or 'endpoint'} every"
+            f" {interval} {unit}(s) and sends"
+            f" an alert email."
+        ),
         "trigger": {
             "type": "time",
             "trigger_at": (datetime.now(UTC) + timedelta(minutes=1)).isoformat(),
@@ -367,10 +379,16 @@ class RuleBasedStrategy(SuggestionStrategy):
         (r"(send|email).*(after|in)\s+\d+\s*(min|minute)", _build_delayed_email_draft),
         (r"(after|in)\s+\d+\s*(min|minute).*(send|email)", _build_delayed_email_draft),
         # health check + alert: "check health ... email"
-        (r"(check|monitor|ping).*(health|status|uptime).*(email|alert|notify)", _build_health_check_draft),
+        (
+            r"(check|monitor|ping).*(health|status|uptime).*(email|alert|notify)",
+            _build_health_check_draft,
+        ),
         (r"(health|status).*(check|monitor).*(email|alert|notify)", _build_health_check_draft),
         # fetch data and email
-        (r"(fetch|get|pull).*(data|report|result).*(email|send|mail)", _build_fetch_and_email_draft),
+        (
+            r"(fetch|get|pull).*(data|report|result).*(email|send|mail)",
+            _build_fetch_and_email_draft,
+        ),
         (r"(call|request).*(api|url).*(email|send|forward)", _build_fetch_and_email_draft),
         # daily email
         (r"(every day|daily).*(email|send)", _build_daily_email_draft),
