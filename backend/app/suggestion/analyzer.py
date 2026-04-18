@@ -61,14 +61,30 @@ class AIAnalyzer:
         text = user_input.raw_text.strip()
         word_count = len(text.split())
         lower = text.lower()
+        # Simple keywords → RuleBasedStrategy (confidence >= 0.8)
         if any(k in lower for k in ("every day", "daily", "every week", "weekly", "webhook")):
             complexity = "simple"
             confidence = 0.85
             input_type = "automation_request"
-        elif word_count < 15:
+        # Moderate keywords → TemplateStrategy (confidence >= 0.7)
+        elif word_count < 20 and any(
+            k in lower
+            for k in (
+                "email", "send", "mail", "notify", "alert",
+                "check", "monitor", "ping", "health",
+                "fetch", "call", "api", "request",
+                "after", "minute", "hour",
+            )
+        ):
             complexity = "medium"
-            confidence = 0.6
+            confidence = 0.75
             input_type = "automation_request"
+        # Short but vague → TemplateStrategy attempt
+        elif word_count < 10:
+            complexity = "medium"
+            confidence = 0.7
+            input_type = "automation_request"
+        # Long or complex → LLMStrategy
         else:
             complexity = "complex"
             confidence = 0.5

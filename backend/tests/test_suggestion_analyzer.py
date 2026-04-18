@@ -9,12 +9,14 @@ from app.suggestion.base import UserInput
 
 @pytest.fixture(autouse=True)
 def disable_openai(monkeypatch):
-    from app.suggestion import openai_client as oc
+    import app.suggestion.openai_client as oc
 
-    oc.get_openai_client.cache_clear()
+    oc._cached_client = None
+    oc._cached_key = None
     monkeypatch.setattr("app.core.config.settings.openai_api_key", "")
     yield
-    oc.get_openai_client.cache_clear()
+    oc._cached_client = None
+    oc._cached_key = None
 
 
 def test_analyzer_classifies_daily_as_simple():
@@ -24,13 +26,43 @@ def test_analyzer_classifies_daily_as_simple():
     assert result.input_type == "automation_request"
 
 
+def test_analyzer_classifies_weekly_as_simple():
+    result = asyncio.run(AIAnalyzer().analyze(UserInput(raw_text="every week send report")))
+    assert result.complexity_level == "simple"
+    assert result.confidence >= 0.8
+
+
+def test_analyzer_classifies_webhook_as_simple():
+    result = asyncio.run(AIAnalyzer().analyze(UserInput(raw_text="webhook trigger deploy")))
+    assert result.complexity_level == "simple"
+    assert result.input_type == "automation_request"
+
+
+def test_analyzer_medium_with_action_keyword():
+    result = asyncio.run(
+        AIAnalyzer().analyze(
+            UserInput(raw_text="send email to team after 5 minutes")
+        )
+    )
+    assert result.complexity_level == "medium"
+    assert result.confidence >= 0.7
+    assert result.input_type == "automation_request"
+
+
+def test_analyzer_medium_with_check_keyword():
+    result = asyncio.run(AIAnalyzer().analyze(UserInput(raw_text="check health and notify admin")))
+    assert result.complexity_level == "medium"
+    assert result.confidence >= 0.7
+
+
+def test_analyzer_short_vague_input():
+    result = asyncio.run(AIAnalyzer().analyze(UserInput(raw_text="notify me")))
+    assert result.complexity_level == "medium"
+    assert result.confidence >= 0.7
+
+
 def test_analyzer_long_complex_input():
     long_text = " ".join(["complex"] * 40)
     result = asyncio.run(AIAnalyzer().analyze(UserInput(raw_text=long_text)))
     assert result.complexity_level == "complex"
-
-
-def test_analyzer_short_ambiguous_input():
-    result = asyncio.run(AIAnalyzer().analyze(UserInput(raw_text="notify me")))
-    assert result.complexity_level == "medium"
-    assert 0.0 <= result.confidence <= 1.0
+    assert result.confidence < 0.7
