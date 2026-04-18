@@ -15,6 +15,7 @@ from app.db.schema.user_trigger import UserTriggerORM
 from app.db.schema.workflow import WorkflowORM
 from app.db.schema.workflow_run import WorkflowRunORM
 from app.db.schema.workflow_step import WorkflowStepORM
+from app.db.schema.workflow_step_run import WorkflowStepRunORM
 from app.db.schema.workflow_trigger import WorkflowTriggerORM
 
 __all__ = [
@@ -28,4 +29,5 @@ __all__ = [
     "WorkflowTriggerORM",
     "WorkflowStepORM",
     "WorkflowRunORM",
+    "WorkflowStepRunORM",
 ]

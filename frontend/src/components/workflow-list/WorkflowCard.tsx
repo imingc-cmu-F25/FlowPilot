@@ -1,5 +1,5 @@
 import { Link } from "react-router";
-import { MoreVertical, Zap } from "lucide-react";
+import { MoreVertical, Play, Zap } from "lucide-react";
 
 interface WorkflowCardProps {
   id: string;
@@ -11,6 +11,36 @@ interface WorkflowCardProps {
   menuOpen: boolean;
   onToggleMenu: () => void;
   onDelete: () => void;
+  onRun?: () => void;
+  running?: boolean;
+  runs?: {
+    run_id: string;
+    status: string;
+    triggered_at: string;
+    trigger_type: string;
+    error: string | null;
+  }[];
+}
+
+const STATUS_COLORS: Record<string, string> = {
+  success: "bg-green-100 text-green-700",
+  failed: "bg-red-100 text-red-700",
+  running: "bg-blue-100 text-blue-700",
+  pending: "bg-yellow-100 text-yellow-700",
+};
+
+function formatRelative(iso: string): string {
+  try {
+    const d = new Date(iso);
+    return d.toLocaleString(undefined, {
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  } catch {
+    return iso;
+  }
 }
 
 export function WorkflowCard({
@@ -23,6 +53,9 @@ export function WorkflowCard({
   menuOpen,
   onToggleMenu,
   onDelete,
+  onRun,
+  running,
+  runs,
 }: WorkflowCardProps) {
   return (
     <div className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm transition-shadow hover:shadow-md">
@@ -70,10 +103,49 @@ export function WorkflowCard({
         </div>
       </div>
       <p className="mb-4 text-sm text-gray-600">{description || "No description"}</p>
-      <div className="flex items-center justify-between text-sm">
+      <div className="mb-4 flex items-center justify-between text-sm">
         <span className="text-gray-500">Trigger: {triggerType}</span>
         <span className="text-gray-400">Updated: {updatedAt}</span>
       </div>
+
+      {onRun ? (
+        <button
+          onClick={onRun}
+          disabled={running}
+          className="mb-3 inline-flex w-full items-center justify-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-medium text-blue-700 transition-colors hover:bg-blue-100 disabled:opacity-60"
+        >
+          <Play className="h-4 w-4" />
+          {running ? "Running…" : "Run now"}
+        </button>
+      ) : null}
+
+      {runs && runs.length > 0 ? (
+        <div className="border-t border-gray-100 pt-3">
+          <p className="mb-2 text-xs font-medium uppercase tracking-wide text-gray-500">
+            Recent runs
+          </p>
+          <ul className="space-y-1.5">
+            {runs.slice(0, 5).map((r) => (
+              <li
+                key={r.run_id}
+                className="flex items-center justify-between text-xs"
+              >
+                <span
+                  className={`rounded-full px-2 py-0.5 font-medium ${
+                    STATUS_COLORS[r.status] ?? "bg-gray-100 text-gray-700"
+                  }`}
+                >
+                  {r.status}
+                </span>
+                <span className="text-gray-500">{r.trigger_type}</span>
+                <span className="text-gray-400">
+                  {formatRelative(r.triggered_at)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
     </div>
   );
 }

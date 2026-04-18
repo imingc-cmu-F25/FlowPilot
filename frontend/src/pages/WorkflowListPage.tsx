@@ -2,9 +2,12 @@ import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router";
 import { Plus } from "lucide-react";
 import {
-  fetchWorkflows,
   deleteWorkflow,
+  fetchWorkflowRuns,
+  fetchWorkflows,
+  triggerWorkflowRun,
   type WorkflowDefinition,
+  type WorkflowRun,
 } from "../lib/api";
 import { WorkflowSearchBar } from "../components/workflow-list/WorkflowSearchBar";
 import { WorkflowCard } from "../components/workflow-list/WorkflowCard";
@@ -34,6 +37,17 @@ export function WorkflowListPage() {
   const [filter, setFilter] = useState<FilterValue>("all");
   const [search, setSearch] = useState("");
   const [openMenu, setOpenMenu] = useState<string | null>(null);
+  const [runsById, setRunsById] = useState<Record<string, WorkflowRun[]>>({});
+  const [runningIds, setRunningIds] = useState<Set<string>>(new Set());
+
+  const loadRuns = useCallback(async (workflowId: string) => {
+    try {
+      const runs = await fetchWorkflowRuns(workflowId);
+      setRunsById((prev) => ({ ...prev, [workflowId]: runs }));
+    } catch {
+      // Silent — runs are a non-critical sidebar widget.
+    }
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -41,16 +55,37 @@ export function WorkflowListPage() {
     try {
       const data = await fetchWorkflows();
       setWorkflows(data);
+      await Promise.all(data.map((wf) => loadRuns(wf.workflow_id)));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load workflows");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [loadRuns]);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  const handleRun = async (workflowId: string) => {
+    setRunningIds((prev) => new Set(prev).add(workflowId));
+    try {
+      await triggerWorkflowRun(workflowId);
+      // Poll a few times so the badge updates as the async run completes.
+      for (let i = 0; i < 3; i++) {
+        await new Promise((r) => setTimeout(r, 500));
+        await loadRuns(workflowId);
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to trigger run");
+    } finally {
+      setRunningIds((prev) => {
+        const next = new Set(prev);
+        next.delete(workflowId);
+        return next;
+      });
+    }
+  };
 
   const handleDelete = async (workflowId: string) => {
     const confirmed = window.confirm(
@@ -123,6 +158,9 @@ export function WorkflowListPage() {
                 setOpenMenu(openMenu === wf.workflow_id ? null : wf.workflow_id)
               }
               onDelete={() => handleDelete(wf.workflow_id)}
+              onRun={() => handleRun(wf.workflow_id)}
+              running={runningIds.has(wf.workflow_id)}
+              runs={runsById[wf.workflow_id]}
             />
           ))}
         </div>

@@ -8,6 +8,7 @@ from uuid import UUID
 
 from app.action.action import ActionStep
 from app.action.base import BaseAction
+from app.action.calendarAction import CalendarActionStep, CalendarCreateEventAction
 from app.action.httpRequestAction import HttpRequestAction, HttpRequestActionStep
 from app.action.sendEmailAction import SendEmailAction, SendEmailActionStep
 from app.execution.contracts import (
@@ -22,6 +23,8 @@ def get_action_for_step(step: ActionStep) -> BaseAction:
         return HttpRequestAction()
     if isinstance(step, SendEmailActionStep):
         return SendEmailAction()
+    if isinstance(step, CalendarActionStep):
+        return CalendarCreateEventAction()
     raise ValueError(
         f"Execution not implemented for action type: {getattr(step, 'action_type', step)}"
     )
@@ -56,6 +59,16 @@ def build_execution_inputs(
                 "to": step.to_template,
                 "subject": step.subject_template,
                 "body": step.body_template,
+            }
+        )
+        return base
+    if isinstance(step, CalendarActionStep):
+        base.update(
+            {
+                "calendar_id": step.calendar_id,
+                "title": step.title_template,
+                "start": step.start_mapping,
+                "end": step.end_mapping,
             }
         )
         return base

@@ -12,6 +12,7 @@ import { WorkflowNodeCard } from "../components/workflow-builder/WorkflowNodeCar
 import type { NodeConfig } from "../components/workflow-builder/nodeConfig";
 import { defaultConfigFor } from "../components/workflow-builder/nodeConfig";
 import {
+  activateWorkflow,
   createSuggestion,
   createWorkflow,
   fetchWorkflow,
@@ -110,7 +111,16 @@ export function WorkflowBuilderPage() {
     if (!iso) return "";
     const date = new Date(iso);
     if (Number.isNaN(date.getTime())) return "";
-    return date.toISOString().slice(0, 16);
+    // `<input type="datetime-local">` expects "YYYY-MM-DDTHH:mm" in the
+    // browser's local timezone. Using `.toISOString()` here would instead
+    // display UTC hours, which is confusing (a 12:42 UTC trigger would show
+    // as 12:42 in the picker even when the user is in PDT). Build the
+    // string from local components so edit mode round-trips correctly.
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return (
+      `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}` +
+      `T${pad(date.getHours())}:${pad(date.getMinutes())}`
+    );
   };
 
   const mapWorkflowToNodes = (wf: WorkflowDefinition): WorkflowNode[] => {
@@ -341,9 +351,16 @@ export function WorkflowBuilderPage() {
             parameters: {
               trigger_at: (() => {
                 const raw = String(triggerCfg.trigger_at ?? "");
-                return raw.includes("+") || raw.endsWith("Z")
-                  ? raw
-                  : raw + ":00+00:00";
+                if (!raw) return raw;
+                // Already timezone-qualified (e.g. loaded back from API)? keep as is.
+                if (raw.includes("+") || raw.endsWith("Z")) return raw;
+                // `<input type="datetime-local">` gives "YYYY-MM-DDTHH:mm" in the
+                // browser's local timezone. `new Date(...).toISOString()` converts
+                // that to correct UTC. Previously we appended "+00:00", which
+                // incorrectly treated local time as UTC (e.g. 5:42 PDT -> stored
+                // as 5:42 UTC, 7 h earlier than intended).
+                const parsed = new Date(raw);
+                return Number.isNaN(parsed.getTime()) ? raw : parsed.toISOString();
               })(),
               timezone: triggerCfg.timezone ?? "UTC",
               recurrence: triggerCfg.recurrence ?? null,
@@ -398,11 +415,13 @@ export function WorkflowBuilderPage() {
         action_type: "http_request" as const,
         ...base,
         parameters: {
-          method: cfg.method ?? "GET",
-          url_template: cfg.url_template ?? "",
+          method: String(cfg.method ?? "GET").trim().toUpperCase(),
+          // Trim to avoid storing stray tabs/spaces from copy-paste that
+          // make httpx reject the URL at runtime.
+          url_template: String(cfg.url_template ?? "").trim(),
           headers: Object.fromEntries(
             ((cfg.headers as { key: string; value: string }[]) ?? []).map(
-              (h) => [h.key, h.value],
+              (h) => [String(h.key).trim(), String(h.value).trim()],
             ),
           ),
         },
@@ -411,6 +430,7 @@ export function WorkflowBuilderPage() {
 
     setSaving(true);
     try {
+      let savedId: string;
       if (id) {
         await updateWorkflow(id, {
           name: workflowName,
@@ -418,14 +438,32 @@ export function WorkflowBuilderPage() {
           trigger,
           steps,
         });
+        savedId = id;
       } else {
-        await createWorkflow({
+        const created = await createWorkflow({
           owner_name: getStoredUsername() ?? "alice",
           name: workflowName,
           enabled: isEnabled,
           trigger,
           steps,
         });
+        savedId = created.workflow_id;
+      }
+      // When the user saves the workflow with "enabled" on, promote it from
+      // draft to active so TriggerService / scheduler will actually pick it
+      // up. Activation also runs backend validation; if it fails, surface the
+      // error but keep the draft we already wrote.
+      if (isEnabled) {
+        try {
+          await activateWorkflow(savedId);
+        } catch (e) {
+          setSaveError(
+            e instanceof Error
+              ? `Workflow saved as draft, but activation failed: ${e.message}`
+              : "Workflow saved as draft, but activation failed.",
+          );
+          return;
+        }
       }
       navigate("/dashboard/workflows");
     } catch (e) {

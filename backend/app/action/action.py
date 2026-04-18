@@ -10,7 +10,7 @@ from pydantic import Field
 
 # Re-export base types so callers only need `from app.action.action import ...`
 from app.action.base import ActionSchema, ActionType, BaseAction, StepSpec  # noqa: F401
-from app.action.calendarAction import CalendarActionStep  # noqa: F401
+from app.action.calendarAction import CalendarActionStep, CalendarCreateEventAction  # noqa: F401
 
 # Concrete step models (each imports from base.py — no circular dependency)
 from app.action.httpRequestAction import HttpRequestAction, HttpRequestActionStep  # noqa: F401

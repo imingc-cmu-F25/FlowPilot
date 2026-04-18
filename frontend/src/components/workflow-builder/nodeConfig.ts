@@ -64,9 +64,14 @@ export type NodeConfig =
 export function defaultTimeTrigger(): TimeTriggerConfig {
   const now = new Date();
   now.setSeconds(0, 0);
+  // datetime-local input expects local-time formatted "YYYY-MM-DDTHH:mm"
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const local =
+    `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}` +
+    `T${pad(now.getHours())}:${pad(now.getMinutes())}`;
   return {
     name: "Time Trigger",
-    trigger_at: now.toISOString().slice(0, 16),
+    trigger_at: local,
     timezone: "UTC",
     recurrence: null,
   };

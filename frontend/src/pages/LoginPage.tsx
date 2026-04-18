@@ -1,7 +1,7 @@
 import type { FormEvent } from "react";
 import { useState } from "react";
 import { Link, useNavigate } from "react-router";
-import { setStoredUsername } from "../auth/storage";
+import { setStoredToken, setStoredUsername } from "../auth/storage";
 import { loginUser } from "../lib/api";
 import { AuthCard } from "../components/AuthCard";
 import { FormField } from "../components/FormField";
@@ -18,7 +18,9 @@ export function LoginPage() {
     setError(null);
     setSubmitting(true);
     try {
-      await loginUser(name.trim(), password);
+      const result = await loginUser(name.trim(), password);
+      const token = result.auth?.token ?? result.token;
+      if (token) setStoredToken(token);
       setStoredUsername(name.trim());
       navigate("/profile");
     } catch (err) {

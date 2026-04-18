@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime
 from uuid import UUID
 
@@ -6,10 +7,14 @@ from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+logger = logging.getLogger(__name__)
+
 from app.action.actionRegistry import ActionRegistry
+from app.core.auth import get_current_user_optional
 from app.core.config import settings
 from app.db.session import get_db
 from app.execution.contracts import enqueue_execute_run
+from app.execution.step_run_repo import WorkflowStepRunRepository
 from app.reporting.repo import ReportRepository
 from app.reporting.service import make_reporting_service
 from app.suggestion.base import UserInput
@@ -63,8 +68,15 @@ def healthcheck() -> dict[str, str]:
 
 # Workflow 
 @api_router.get("/workflows")
-def list_workflows(db: Session = Depends(get_db)):
-    return WorkflowRepository(db).list_all()
+def list_workflows(
+    db: Session = Depends(get_db),
+    current_user: str | None = Depends(get_current_user_optional),
+):
+    repo = WorkflowRepository(db)
+    workflows = repo.list_all()
+    if current_user is not None:
+        workflows = [wf for wf in workflows if wf.owner_name == current_user]
+    return workflows
 
 
 @api_router.post("/workflows", status_code=201)
@@ -72,8 +84,11 @@ def create_workflow(
     cmd: CreateWorkflowCommand,
     db: Session = Depends(get_db),
     svc: WorkflowService = Depends(make_workflow_service),
+    current_user: str | None = Depends(get_current_user_optional),
 ):
     try:
+        if current_user is not None:
+            cmd = cmd.model_copy(update={"owner_name": current_user})
         if UserRepository(db).get_by_name(cmd.owner_name) is None:
             raise HTTPException(
                 422,
@@ -95,8 +110,11 @@ def create_workflow(
     except IntegrityError as exc:
         raise HTTPException(422, detail=_format_integrity_error(exc))
     
-    except Exception:
-        raise HTTPException(500, detail={"message": "Unexpected server error"})
+    except Exception as exc:
+        logger.exception("Unhandled error creating workflow")
+        raise HTTPException(
+            500, detail={"message": f"Unexpected server error: {type(exc).__name__}: {exc}"}
+        )
 
 
 @api_router.get("/workflows/{wf_id}")
@@ -132,8 +150,11 @@ def update_workflow(
     except IntegrityError as exc:
         raise HTTPException(422, detail=_format_integrity_error(exc))
     
-    except Exception:
-        raise HTTPException(500, detail={"message": "Unexpected server error"})
+    except Exception as exc:
+        logger.exception("Unhandled error updating workflow %s", wf_id)
+        raise HTTPException(
+            500, detail={"message": f"Unexpected server error: {type(exc).__name__}: {exc}"}
+        )
 
 
 @api_router.delete("/workflows/{wf_id}", status_code=204)
@@ -182,6 +203,14 @@ def get_run(wf_id: UUID, run_id: UUID, db: Session = Depends(get_db)):
     if run is None or run.workflow_id != wf_id:
         raise HTTPException(404, detail="Run not found")
     return run
+
+
+@api_router.get("/workflows/{wf_id}/runs/{run_id}/steps", tags=["workflow-runs"])
+def list_step_runs(wf_id: UUID, run_id: UUID, db: Session = Depends(get_db)):
+    run = WorkflowRunRepository(db).get(run_id)
+    if run is None or run.workflow_id != wf_id:
+        raise HTTPException(404, detail="Run not found")
+    return WorkflowStepRunRepository(db).list_for_run(run_id)
 
 
 class CreateWorkflowRunBody(BaseModel):
@@ -255,6 +284,7 @@ async def ingest_webhook(
         "matched_workflows": len(matched),
         "emitted_runs": emitted,
     }
+
 
 # Registry
 @api_router.get("/registry/actions")
