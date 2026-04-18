@@ -7,7 +7,6 @@ from app.suggestion.strategies.llm import LLMStrategy, _validate_and_fix
 from app.suggestion.strategies.rule_based import RuleBasedStrategy
 from app.suggestion.strategies.template import TemplateStrategy
 
-
 # ---------- RuleBasedStrategy ----------
 
 def test_rule_based_matches_daily_email():

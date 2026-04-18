@@ -3,7 +3,6 @@
 import asyncio
 
 import pytest
-
 from app.suggestion.analyzer import AIAnalyzer
 from app.suggestion.base import UserInput
 
