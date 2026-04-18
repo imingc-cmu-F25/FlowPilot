@@ -13,8 +13,10 @@ from __future__ import annotations
 import json
 from typing import Protocol
 
-_OPENAI_CHAT_URL = "https://api.openai.com/v1/chat/completions"
-_DEFAULT_MODEL = "gpt-4o-mini"
+from app.core.config import settings as _settings
+
+_OPENAI_CHAT_URL = _settings.openai_base_url + "/chat/completions" if _settings.openai_base_url else "https://api.openai.com/v1/chat/completions"
+_DEFAULT_MODEL = _settings.openai_model or "gpt-4o-mini"
 _DEFAULT_TIMEOUT_S = 15.0
 _SYSTEM_PROMPT = (
     "You are a concise reporting assistant. Given a JSON blob of monthly "
