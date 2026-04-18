@@ -12,8 +12,8 @@ from app.db.session import get_db
 from app.execution.contracts import enqueue_execute_run
 from app.reporting.repo import ReportRepository
 from app.reporting.service import make_reporting_service
-from app.trigger.triggerRegistry import TriggerRegistry
 from app.trigger.service import TriggerService
+from app.trigger.triggerRegistry import TriggerRegistry
 from app.user.repo import UserRepository
 from app.workflow.repo import WorkflowRepository
 from app.workflow.run import RunStatus, WorkflowRun

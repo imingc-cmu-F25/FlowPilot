@@ -8,13 +8,13 @@ from app.db.connector import get_engine
 from app.reporting.repo import ReportRepository
 from app.reporting.report import ReportStatus
 from app.reporting.service import make_reporting_service
+from app.trigger.service import TriggerService
 from app.user.repo import UserRepository
 from app.workflow.repo import WorkflowRepository
 from app.workflow.run import RunStatus, WorkflowRun
 from app.workflow.run_repo import WorkflowRunRepository
 from app.workflow.service import CreateWorkflowCommand, WorkflowService
 from app.workflow.workflow import WorkflowDefinitionBuilder, WorkflowStatus
-from app.trigger.service import TriggerService
 from sqlalchemy.orm import sessionmaker
 from tests.test_workflow_service import EMAIL_STEP, TIME_SPEC
 

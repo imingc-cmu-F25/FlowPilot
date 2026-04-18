@@ -3,8 +3,8 @@ from datetime import UTC, datetime
 from pydantic import BaseModel
 
 from app.action.action import ActionStepFactory, StepSpec
-from app.trigger.trigger import TriggerSpec
 from app.trigger.service import TriggerService
+from app.trigger.trigger import TriggerSpec
 from app.workflow.workflow import IWorkflowBuilder, WorkflowDefinition, WorkflowDefinitionBuilder
 
 

@@ -11,8 +11,9 @@ from app.trigger.service import TriggerService
 from app.trigger.trigger import TriggerType
 from app.trigger.triggerConfig import TimeTriggerConfig
 from app.workflow.repo import WorkflowRepository
-from app.workflow.run_repo import WorkflowRunRepository
 from app.workflow.run import RunStatus
+from app.workflow.run_repo import WorkflowRunRepository
+
 
 @shared_task(name="trigger.dispatch_time_triggers")
 def dispatch_time_triggers() -> int:

@@ -80,7 +80,10 @@ def test_dispatch_time_triggers_emits_only_due_workflows(monkeypatch):
     monkeypatch.setattr("app.trigger.tasks.SessionFactory", lambda bind=None: lambda: fake_session)
     monkeypatch.setattr("app.trigger.tasks.WorkflowRepository", FakeWorkflowRepo)
     monkeypatch.setattr("app.trigger.tasks.WorkflowRunRepository", lambda s: fake_run_repo)
-    monkeypatch.setattr("app.trigger.tasks.TriggerService", lambda run_repo=None: fake_trigger_service)
+    monkeypatch.setattr(
+        "app.trigger.tasks.TriggerService", 
+        lambda run_repo=None: fake_trigger_service,
+    )
 
     emitted = dispatch_time_triggers()
 
@@ -106,8 +109,14 @@ def test_dispatch_time_triggers_skips_if_recent_time_run_exists(monkeypatch):
     monkeypatch.setattr("app.trigger.tasks.get_engine", lambda: object())
     monkeypatch.setattr("app.trigger.tasks.SessionFactory", lambda bind=None: lambda: fake_session)
     monkeypatch.setattr("app.trigger.tasks.WorkflowRepository", _wf_repo_factory)
-    monkeypatch.setattr("app.trigger.tasks.WorkflowRunRepository", lambda s: fake_run_repo)
-    monkeypatch.setattr("app.trigger.tasks.TriggerService", lambda run_repo=None: fake_trigger_service)
+    monkeypatch.setattr(
+        "app.trigger.tasks.WorkflowRunRepository",
+        lambda s: fake_run_repo,
+    )
+    monkeypatch.setattr(
+        "app.trigger.tasks.TriggerService",
+        lambda run_repo=None: fake_trigger_service,
+    )
 
     emitted = dispatch_time_triggers()
 

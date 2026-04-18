@@ -11,13 +11,13 @@ from app.reporting.filters.data_collection import DataCollectionFilter
 from app.reporting.filters.formatting import FormattingFilter
 from app.reporting.pipeline import PipeData
 from app.reporting.report import AggregatedMetrics, ReportStatus
+from app.trigger.service import TriggerService
 from app.user.repo import UserRepository
 from app.workflow.repo import WorkflowRepository
 from app.workflow.run import RunStatus, WorkflowRun
 from app.workflow.run_repo import WorkflowRunRepository
 from app.workflow.service import CreateWorkflowCommand, WorkflowService
 from app.workflow.workflow import WorkflowDefinitionBuilder, WorkflowStatus
-from app.trigger.service import TriggerService
 from sqlalchemy.orm import sessionmaker
 from tests.test_workflow_service import EMAIL_STEP, TIME_SPEC
 

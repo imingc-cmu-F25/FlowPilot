@@ -1,11 +1,12 @@
 """Tests for WorkflowService (Director) and WorkflowValidator."""
 
 from app.action.action import ActionType, StepSpec
+from app.trigger.service import TriggerService
 from app.trigger.trigger import TriggerSpec, TriggerType
 from app.workflow.service import CreateWorkflowCommand, UpdateWorkflowCommand, WorkflowService
 from app.workflow.validator import validate_workflow
 from app.workflow.workflow import WorkflowDefinitionBuilder, WorkflowStatus
-from app.trigger.service import TriggerService
+
 
 def make_service() -> WorkflowService:
     return WorkflowService(WorkflowDefinitionBuilder(), TriggerService())

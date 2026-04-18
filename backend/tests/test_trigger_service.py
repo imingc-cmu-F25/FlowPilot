@@ -1,9 +1,10 @@
 from uuid import uuid4
 
+import pytest
 from app.trigger.service import TriggerService
 from app.trigger.trigger import TriggerSpec, TriggerType
 from app.workflow.run import RunStatus
-import pytest
+
 
 class FakeRunRepo:
     def __init__(self):

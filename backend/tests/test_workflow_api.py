@@ -299,7 +299,10 @@ class TestWebhookIngest:
             "/api/workflows",
             json=webhook_payload(
                 enabled=True,
-                trigger={"type": "webhook", "parameters": {"path": "/hooks/test", "method": "POST"}},
+                trigger={
+                    "type": "webhook", 
+                    "parameters": {"path": "/hooks/test", "method": "POST"}
+                },
             ),
         )
         assert r.status_code == 201, r.json()
@@ -309,7 +312,7 @@ class TestWebhookIngest:
             "app.trigger.service.enqueue_execute_run",
             lambda _run_id: None,
         )
-        
+
         # ingest webhook
         ingest = client.post("/api/hooks/test")
         assert ingest.status_code == 200

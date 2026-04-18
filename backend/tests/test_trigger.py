@@ -3,22 +3,23 @@
 import asyncio
 from datetime import UTC, datetime, timedelta
 from typing import Annotated
-from pydantic import BaseModel, Field
 
 import pytest
+from app.trigger.customTrigger import CustomTrigger
 from app.trigger.recurrence import RecurrenceFrequency, RecurrenceRule
+from app.trigger.timeTrigger import TimeTrigger
 from app.trigger.trigger import TriggerSpec, TriggerType
-from app.trigger.triggerConfig import TimeTriggerConfig, WebhookTriggerConfig, CustomTriggerConfig
+from app.trigger.triggerConfig import CustomTriggerConfig, TimeTriggerConfig, WebhookTriggerConfig
 from app.trigger.triggerFactories import (
     TRIGGER_FACTORIES,
+    CustomTriggerFactory,
     TimeTriggerFactory,
     WebhookTriggerFactory,
-    CustomTriggerFactory,
     build_trigger_config,
 )
-from app.trigger.timeTrigger import TimeTrigger
 from app.trigger.webhookTrigger import WebhookTrigger
-from app.trigger.customTrigger import CustomTrigger
+from pydantic import BaseModel, Field
+
 
 #  RecurrenceRule validation 
 class TestRecurrenceRuleValidation:

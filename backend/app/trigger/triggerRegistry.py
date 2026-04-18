@@ -1,7 +1,7 @@
+from app.trigger.customTrigger import CustomTrigger
 from app.trigger.timeTrigger import TimeTrigger
 from app.trigger.trigger import BaseTrigger
 from app.trigger.webhookTrigger import WebhookTrigger
-from app.trigger.customTrigger import CustomTrigger
 
 
 class TriggerRegistry:

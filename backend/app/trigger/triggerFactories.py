@@ -3,11 +3,19 @@ from datetime import datetime
 
 from app.trigger.recurrence import RecurrenceRule
 from app.trigger.trigger import TriggerSpec, TriggerType
-from app.trigger.triggerConfig import TimeTriggerConfig, WebhookTriggerConfig, CustomTriggerConfig, TriggerConfig
+from app.trigger.triggerConfig import (
+    CustomTriggerConfig,
+    TimeTriggerConfig,
+    TriggerConfig,
+    WebhookTriggerConfig,
+)
+
 
 class TriggerFactory(ABC):
     @abstractmethod
-    def create(self, spec: TriggerSpec) -> TimeTriggerConfig | WebhookTriggerConfig | CustomTriggerConfig:
+    def create(
+        self, spec: TriggerSpec
+    ) -> TimeTriggerConfig | WebhookTriggerConfig | CustomTriggerConfig:
         ...
 
 class TimeTriggerFactory(TriggerFactory):
