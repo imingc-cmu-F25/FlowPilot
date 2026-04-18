@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router";
-import { Clock, Webhook, Mail, Bell, Code } from "lucide-react";
+import { Clock, Webhook, Mail, Bell, Code, SlidersHorizontal } from "lucide-react";
 import {
   NodePalette,
   type PaletteItem,
@@ -46,6 +46,7 @@ interface TimeRecurrence {
 const triggers = [
   { category: "time", title: "Time-based Trigger", icon: Clock },
   { category: "webhook", title: "Webhook Trigger", icon: Webhook },
+  { category: "custom", title: "Custom Trigger", icon: SlidersHorizontal },
 ];
 
 const actions = [
@@ -148,6 +149,20 @@ export function WorkflowBuilderPage() {
           event_filter: String(
             (wf.trigger as { event_filter?: string }).event_filter ?? "",
           ),
+        },
+      });
+    } else if (wf.trigger.type === "custom") {
+      result.push({
+        id: `trigger-${String((wf.trigger as { trigger_id?: string }).trigger_id ?? Date.now())}`,
+        type: "trigger",
+        category: "custom",
+        title: "Custom Trigger",
+        icon: SlidersHorizontal,
+        config: {
+          name: "Custom Trigger",
+          condition: String((wf.trigger as { condition?: string }).condition ?? ""),
+          source: String((wf.trigger as { source?: string }).source ?? "event_payload"),
+          description: String((wf.trigger as { description?: string }).description ?? ""),
         },
       });
     }
@@ -322,7 +337,6 @@ export function WorkflowBuilderPage() {
             parameters: {
               trigger_at: (() => {
                 const raw = String(triggerCfg.trigger_at ?? "");
-                // datetime-local gives "YYYY-MM-DDTHH:mm"; make it a valid UTC ISO string
                 return raw.includes("+") || raw.endsWith("Z")
                   ? raw
                   : raw + ":00+00:00";
@@ -331,15 +345,24 @@ export function WorkflowBuilderPage() {
               recurrence: triggerCfg.recurrence ?? null,
             },
           }
-        : {
-            type: "webhook" as const,
-            parameters: {
-              path: triggerCfg.path,
-              method: triggerCfg.method ?? "POST",
-              secret_ref: triggerCfg.secret_ref ?? "",
-              event_filter: triggerCfg.event_filter ?? "",
-            },
-          };
+        : triggerNode.category === "custom"
+          ? {
+              type: "custom" as const,
+              parameters: {
+                condition: String(triggerCfg.condition ?? ""),
+                source: String(triggerCfg.source ?? "event_payload"),
+                description: String(triggerCfg.description ?? ""),
+              },
+            }
+          : {
+              type: "webhook" as const,
+              parameters: {
+                path: triggerCfg.path,
+                method: triggerCfg.method ?? "POST",
+                secret_ref: triggerCfg.secret_ref ?? "",
+                event_filter: triggerCfg.event_filter ?? "",
+              },
+            };
 
     const steps = actionNodes.map((n, i) => {
       const cfg = n.config as unknown as Record<string, unknown>;

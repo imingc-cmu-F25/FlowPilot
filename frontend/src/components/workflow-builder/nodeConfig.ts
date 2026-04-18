@@ -20,6 +20,13 @@ export interface WebhookTriggerConfig {
   event_filter: string;
 }
 
+export interface CustomTriggerConfig {
+  name: string;
+  condition: string;
+  source: string;
+  description: string;
+}
+
 export interface HttpRequestActionConfig {
   name: string;
   method: string;
@@ -47,6 +54,7 @@ export interface CalendarActionConfig {
 export type NodeConfig =
   | TimeTriggerConfig
   | WebhookTriggerConfig
+  | CustomTriggerConfig
   | HttpRequestActionConfig
   | SendEmailActionConfig
   | CalendarActionConfig;
@@ -66,6 +74,10 @@ export function defaultTimeTrigger(): TimeTriggerConfig {
 
 export function defaultWebhookTrigger(): WebhookTriggerConfig {
   return { name: "Webhook Trigger", path: "/hooks/my-workflow", method: "POST", secret_ref: "", event_filter: "" };
+}
+
+export function defaultCustomTrigger(): CustomTriggerConfig {
+  return { name: "Custom Trigger", condition: "true", source: "event_payload", description: "" };
 }
 
 export function defaultHttpRequestAction(): HttpRequestActionConfig {
@@ -89,7 +101,9 @@ export function defaultCalendarAction(): CalendarActionConfig {
 
 export function defaultConfigFor(type: "trigger" | "action", category: string): NodeConfig {
   if (type === "trigger") {
-    return category === "webhook" ? defaultWebhookTrigger() : defaultTimeTrigger();
+    if (category === "webhook") return defaultWebhookTrigger();
+    if (category === "custom") return defaultCustomTrigger();
+    return defaultTimeTrigger();
   }
   if (category === "email") return defaultSendEmailAction();
   if (category === "calendar") return defaultCalendarAction();

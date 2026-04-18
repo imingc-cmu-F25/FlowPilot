@@ -4,12 +4,14 @@ import type {
   NodeConfig,
   TimeTriggerConfig,
   WebhookTriggerConfig,
+  CustomTriggerConfig,
   HttpRequestActionConfig,
   SendEmailActionConfig,
   CalendarActionConfig,
 } from "./nodeConfig";
 import { TimeTriggerForm } from "./forms/TimeTriggerForm";
 import { WebhookTriggerForm } from "./forms/WebhookTriggerForm";
+import { CustomTriggerForm } from "./forms/CustomTriggerForm";
 import { HttpRequestActionForm } from "./forms/HttpRequestActionForm";
 import { SendEmailActionForm } from "./forms/SendEmailActionForm";
 import { CalendarActionForm } from "./forms/CalendarActionForm";
@@ -25,6 +27,7 @@ interface NodePropertiesPanelProps {
 const SECTION_LABELS: Record<string, string> = {
   time: "Time-based Trigger",
   webhook: "Webhook Trigger",
+  custom: "Custom Trigger",
   calendar: "Calendar Event",
   email: "Send Email",
   api: "HTTP Request",
@@ -81,7 +84,12 @@ export function NodePropertiesPanel({
             config={draft as WebhookTriggerConfig}
             onChange={setDraft}
           />
-        ) : type === "trigger" ? (
+        ) : type === "trigger" && category === "custom" ? (
+          <CustomTriggerForm
+            config={draft as CustomTriggerConfig}
+            onChange={setDraft}
+          />
+        ) : type === "trigger" && category === "time" ? (
           <TimeTriggerForm
             config={draft as TimeTriggerConfig}
             onChange={setDraft}
