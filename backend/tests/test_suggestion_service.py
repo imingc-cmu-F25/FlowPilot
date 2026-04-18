@@ -29,10 +29,12 @@ def db_session():
 def disable_openai(monkeypatch):
     from app.suggestion import openai_client as oc
 
-    oc.get_openai_client.cache_clear()
+    oc._cached_client = None
+    oc._cached_key = None
     monkeypatch.setattr("app.core.config.settings.openai_api_key", "")
     yield
-    oc.get_openai_client.cache_clear()
+    oc._cached_client = None
+    oc._cached_key = None
 
 
 def test_service_persists_suggestion(db_session):
