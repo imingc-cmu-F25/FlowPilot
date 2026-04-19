@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+import logging
 
 from celery import shared_task
 from sqlalchemy.orm import Session
@@ -14,19 +15,28 @@ from app.workflow.repo import WorkflowRepository
 from app.workflow.run import RunStatus
 from app.workflow.run_repo import WorkflowRunRepository
 
+logger = logging.getLogger(__name__)
+
 
 @shared_task(name="trigger.dispatch_time_triggers")
 def dispatch_time_triggers() -> int:
     """Scan enabled workflows with time triggers and emit due runs."""
+    print("[time_trigger] scan started", flush=True)
+    logger.info("[time_trigger] scan started")
+
     engine = get_engine()
-    session: Session = SessionFactory(bind=engine)()
+    session: Session = SessionFactory(bind=engine)
 
     emitted = 0
     try:
         wf_repo = WorkflowRepository(session)
         trigger_service = TriggerService(WorkflowRunRepository(session))
 
-        for wf in wf_repo.list_all():
+        all_workflows = wf_repo.list_all()
+        print(f"[time_trigger] found {len(all_workflows)} total workflows", flush=True)
+        logger.info("[time_trigger] found %d total workflows", len(all_workflows))
+
+        for wf in all_workflows:
             if not wf.enabled:
                 continue
             if wf.trigger.type != TriggerType.TIME:
@@ -43,6 +53,18 @@ def dispatch_time_triggers() -> int:
                 if cfg.recurrence is None
                 else cfg.recurrence.is_due(cfg.trigger_at, now)
             )
+
+            print(
+                f"[time_trigger] workflow={wf.workflow_id} trigger_at={cfg.trigger_at.isoformat()} due={due}",
+                flush=True,
+            )
+            logger.info(
+                "[time_trigger] workflow=%s trigger_at=%s due=%s",
+                wf.workflow_id,
+                cfg.trigger_at.isoformat(),
+                due,
+            )
+
             if not due:
                 continue
 
@@ -56,6 +78,8 @@ def dispatch_time_triggers() -> int:
                     RunStatus.RUNNING,
                     RunStatus.SUCCESS,
                 }:
+                    print(f"[time_trigger] workflow={wf.workflow_id} skipped (one-shot already ran)", flush=True)
+                    logger.info("[time_trigger] workflow=%s skipped (one-shot already ran)", wf.workflow_id)
                     continue
 
                 # only skip if a run was dispatched very recently.
@@ -64,7 +88,12 @@ def dispatch_time_triggers() -> int:
                     and last_run.triggered_at >= now - timedelta(seconds=60)
                     and last_run.status in {RunStatus.PENDING, RunStatus.RUNNING, RunStatus.SUCCESS}
                 ):
+                    print(f"[time_trigger] workflow={wf.workflow_id} skipped (dispatched recently)", flush=True)
+                    logger.info("[time_trigger] workflow=%s skipped (dispatched recently)", wf.workflow_id)
                     continue
+
+            print(f"[time_trigger] dispatching workflow={wf.workflow_id}", flush=True)
+            logger.info("[time_trigger] dispatching workflow=%s", wf.workflow_id)
 
             trigger_service.emit_workflow_event(
                 workflow_id=wf.workflow_id,
@@ -73,9 +102,13 @@ def dispatch_time_triggers() -> int:
             )
             emitted += 1
 
+        print(f"[time_trigger] scan complete, emitted={emitted}", flush=True)
+        logger.info("[time_trigger] scan complete, emitted=%d", emitted)
         session.commit()
         return emitted
-    except Exception:
+    except Exception as exc:
+        print(f"[time_trigger] ERROR: {exc}", flush=True)
+        logger.exception("[time_trigger] unexpected error: %s", exc)
         session.rollback()
         raise
     finally:

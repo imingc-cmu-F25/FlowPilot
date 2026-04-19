@@ -46,7 +46,7 @@ def generate_monthly_report(
     period_start = datetime.fromisoformat(period_start_iso)
     period_end = datetime.fromisoformat(period_end_iso)
     engine = get_engine()
-    session: Session = SessionFactory(bind=engine)()
+    session: Session = SessionFactory(bind=engine)
     try:
         service = make_reporting_service(session)
         report = service.generate_monthly_report(
@@ -68,7 +68,7 @@ def dispatch_monthly_reports() -> int:
     """Fan out a generate_monthly_report task per user for the previous month."""
     period_start, period_end = _previous_month_bounds(datetime.now(UTC))
     engine = get_engine()
-    session: Session = SessionFactory(bind=engine)()
+    session: Session = SessionFactory(bind=engine)
     try:
         users = UserRepository(session).get_all_users()
         for user in users:

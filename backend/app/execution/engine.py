@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import logging
 from uuid import UUID
 
 from sqlalchemy.orm import Session
+
+logger = logging.getLogger(__name__)
 
 from app.execution.context import ExecutionContext
 from app.execution.persistence import RunStatePersister
@@ -70,6 +73,8 @@ class ExecutionEngine:
                     )
                     step_out = run_action_sync(step, inputs)
                 except Exception as exc:  # noqa: BLE001 — surface as run failure / retry
+                    print(f"[execution] step failed run_id={run_id} step={getattr(step, 'step_order', '?')} error={exc!r}", flush=True)
+                    logger.exception("[execution] step failed run_id=%s step=%s: %s", run_id, getattr(step, "step_order", "?"), exc)
                     decision = ctx.request_step_failure(exc)
                     self._db.commit()
                     if decision == StepFailureDecision.RETRY:

@@ -1,9 +1,12 @@
 from typing import Literal
+import logging
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field
 
 from app.action.base import ActionSchema, ActionType, BaseAction
+
+logger = logging.getLogger(__name__)
 
 
 class SendEmailActionStep(BaseModel):
@@ -46,12 +49,29 @@ class SendEmailAction(BaseAction):
 
         from app.core.config import settings
 
+        print(
+            f"[send_email] execute called to={inputs.get('to')} subject={inputs.get('subject')!r}",
+            flush=True,
+        )
+        logger.info(
+            "send_email.start",
+            extra={
+                "to": inputs.get("to"),
+                "subject": inputs.get("subject"),
+                "body_length": len(str(inputs.get("body", ""))),
+            },
+        )
+
         msg = EmailMessage()
         msg["From"] = settings.smtp_from
         msg["To"] = inputs["to"]
         msg["Subject"] = inputs["subject"]
         msg.set_content(inputs["body"])
 
+        print(
+            f"[send_email] connecting to SMTP {settings.smtp_host}:{settings.smtp_port}",
+            flush=True,
+        )
         with smtplib.SMTP(settings.smtp_host, settings.smtp_port) as smtp:
             if settings.smtp_use_tls:
                 smtp.starttls()
@@ -59,5 +79,7 @@ class SendEmailAction(BaseAction):
                 smtp.login(settings.smtp_user, settings.smtp_password)
             smtp.send_message(msg)
 
+        print(f"[send_email] sent to={inputs.get('to')} subject={inputs.get('subject')!r}", flush=True)
+        logger.info("send_email.success", extra={"to": inputs.get("to")})
         return {"status": "sent", "to": inputs["to"]}
 
