@@ -13,18 +13,24 @@ Optional explicit override:
         python seed_march_data.py
 """
 
+import os
 import random
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import create_engine, text
+import app.db.schema  # noqa: F401 — registers all ORM classes
+from app.db.schema.user import UserORM
+from app.db.schema.workflow import WorkflowORM
+from app.db.schema.workflow_run import WorkflowRunORM
+from app.db.schema.workflow_step import WorkflowStepORM
+from app.db.schema.workflow_step_run import WorkflowStepRunORM
+from app.db.schema.workflow_trigger import WorkflowTriggerORM
+from sqlalchemy import create_engine, delete, select
 from sqlalchemy.orm import sessionmaker
 
 # ---------------------------------------------------------------------------
 # DB connection — honours app env vars so it works both locally and in Docker
 # ---------------------------------------------------------------------------
-import os
-
 _host = os.environ.get("POSTGRES_HOST", "localhost")
 _port = os.environ.get("POSTGRES_PORT", "5432")
 _db   = os.environ.get("POSTGRES_DB", "flowpilot")
@@ -38,20 +44,8 @@ engine = create_engine(DATABASE_URL, pool_pre_ping=True)
 Session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
 # ---------------------------------------------------------------------------
-# Import ORM models via app package (must run from backend/ directory)
-# ---------------------------------------------------------------------------
-import app.db.schema  # noqa: F401 — registers all ORM classes
-from app.db.schema.user import UserORM
-from app.db.schema.workflow import WorkflowORM
-from app.db.schema.workflow_trigger import WorkflowTriggerORM
-from app.db.schema.workflow_step import WorkflowStepORM
-from app.db.schema.workflow_run import WorkflowRunORM
-from app.db.schema.workflow_step_run import WorkflowStepRunORM
-
-# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-UTC = timezone.utc
 MARCH_START = datetime(2026, 3, 1, tzinfo=UTC)
 MARCH_END = datetime(2026, 3, 30, 23, 59, 59, tzinfo=UTC)
 SEED_USER = "natalie"
@@ -538,7 +532,6 @@ def seed_runs(session, wf_id: uuid.UUID, wf_def: dict):
 
 def cleanup_previous_seed(session) -> None:
     """Delete workflows previously inserted by this seed script (by owner)."""
-    from sqlalchemy import select, delete
     wf_ids = session.execute(
         select(WorkflowORM.id).where(WorkflowORM.owner_name == SEED_USER)
     ).scalars().all()
@@ -576,7 +569,10 @@ def main():
             total_runs += n
             success_count = sum(c for s, c in wf_def["run_pattern"] if s == "success")
             fail_count = sum(c for s, c in wf_def["run_pattern"] if s == "failed")
-            print(f"    '{wf_def['name']}': {n} runs ({success_count} success, {fail_count} failed)")
+            print(
+                f"    '{wf_def['name']}': {n} runs "
+                f"({success_count} success, {fail_count} failed)"
+            )
 
         session.commit()
 
