@@ -32,6 +32,7 @@ export interface HttpRequestActionConfig {
   method: string;
   url_template: string;
   headers: { key: string; value: string }[];
+  body_template: string;
 }
 
 export interface SendEmailActionConfig {
@@ -101,7 +102,17 @@ export function defaultCustomTrigger(): CustomTriggerConfig {
 }
 
 export function defaultHttpRequestAction(): HttpRequestActionConfig {
-  return { name: "HTTP Request", method: "GET", url_template: "", headers: [] };
+  // Pre-fill a Slack / Discord / ntfy-compatible JSON payload so a demo user
+  // only has to paste their webhook URL and hit Save. Method stays GET so
+  // users doing simple API probes aren't surprised by a stray body — the
+  // body field only surfaces in the form once they switch to POST/PUT/…
+  return {
+    name: "HTTP Request",
+    method: "GET",
+    url_template: "",
+    headers: [{ key: "Content-Type", value: "application/json" }],
+    body_template: '{\n  "text": "🚀 Hello from FlowPilot!"\n}',
+  };
 }
 
 export function defaultSendEmailAction(): SendEmailActionConfig {

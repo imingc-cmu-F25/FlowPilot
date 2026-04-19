@@ -2,6 +2,7 @@ import { Plus, Trash2 } from "lucide-react";
 import type { HttpRequestActionConfig } from "../nodeConfig";
 
 const HTTP_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"];
+const METHODS_WITH_BODY = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
 interface Props {
   config: HttpRequestActionConfig;
@@ -117,6 +118,28 @@ export function HttpRequestActionForm({ config, onChange }: Props) {
           ))}
         </div>
       </div>
+
+      {/* Body — only methods that actually carry one */}
+      {METHODS_WITH_BODY.has(config.method) && (
+        <div>
+          <label className="mb-1 block text-sm font-medium text-gray-700">
+            Body
+          </label>
+          <textarea
+            value={config.body_template}
+            onChange={(e) => set("body_template", e.target.value)}
+            placeholder={'{\n  "text": "Hello from FlowPilot"\n}'}
+            rows={6}
+            className="w-full resize-y rounded-lg border border-gray-300 px-3 py-2 font-mono text-xs focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          />
+          <p className="mt-1 text-xs text-gray-500">
+            Sent verbatim as the request body. For JSON APIs (Slack, Discord,
+            Notion…) remember to add a{" "}
+            <code className="rounded bg-gray-100 px-1">Content-Type</code>{" "}
+            header above.
+          </p>
+        </div>
+      )}
     </div>
   );
 }
