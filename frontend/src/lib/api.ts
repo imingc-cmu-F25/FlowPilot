@@ -395,6 +395,7 @@ export type AggregatedMetrics = {
   success_rate: number;
   avg_duration_seconds: number;
   runs_per_workflow: Record<string, number>;
+  workflow_names: Record<string, string>;
   top_error_messages: string[];
 };
 

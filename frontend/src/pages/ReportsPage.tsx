@@ -202,6 +202,7 @@ function ReportDetail({ report }: { report: MonthlyReport }) {
     success_rate,
     avg_duration_seconds,
     runs_per_workflow,
+    workflow_names,
     top_error_messages,
   } = report.metrics;
 
@@ -244,8 +245,8 @@ function ReportDetail({ report }: { report: MonthlyReport }) {
                 key={wfId}
                 className="flex items-center justify-between px-4 py-2 text-sm"
               >
-                <span className="truncate font-mono text-xs text-gray-600">
-                  {wfId}
+                <span className="truncate text-gray-700">
+                  {workflow_names?.[wfId] ?? wfId}
                 </span>
                 <span className="font-medium text-gray-900">{count}</span>
               </li>
