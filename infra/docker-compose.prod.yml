@@ -1,0 +1,140 @@
+# Standalone production compose file for FlowPilot.
+#
+# Usage:
+#   docker compose -f infra/docker-compose.prod.yml up -d --build
+# or simply `make prod-up`.
+#
+# Differences vs. the dev compose:
+# - Postgres/Redis are NOT exposed to the host; only containers on this
+#   network can reach them.
+# - Backend/worker/beat do not bind-mount the source tree and do not run in
+#   --reload mode. Backend runs `--workers 2`.
+# - Frontend is served as a static build by nginx (`Dockerfile.prod`), not
+#   Vite's dev server. `VITE_API_BASE_URL` is baked in as `/api`.
+# - A `caddy` service terminates TLS on :80/:443, reverse-proxies /api and
+#   /hooks to the backend, and serves everything else from the frontend
+#   container.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: flowpilot-postgres
+    restart: always
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-flowpilot}
+      POSTGRES_USER: ${POSTGRES_USER:-flowpilot}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-flowpilot}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  redis:
+    image: redis:7-alpine
+    container_name: flowpilot-redis
+    restart: always
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  backend:
+    build:
+      context: ../backend
+    container_name: flowpilot-backend
+    restart: always
+    env_file:
+      - ../.env
+    depends_on:
+      - postgres
+      - redis
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  worker:
+    build:
+      context: ../backend
+    container_name: flowpilot-worker
+    restart: always
+    env_file:
+      - ../.env
+    depends_on:
+      - postgres
+      - redis
+    command: celery -A app.worker.celery_app worker --loglevel=info --concurrency=2
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  beat:
+    build:
+      context: ../backend
+    container_name: flowpilot-beat
+    restart: always
+    env_file:
+      - ../.env
+    depends_on:
+      - redis
+      - worker
+      - backend
+    command: celery -A app.worker.celery_app beat --loglevel=info
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile.prod
+      args:
+        # Served from the same origin by Caddy -> use a relative API base.
+        VITE_API_BASE_URL: /api
+    container_name: flowpilot-frontend
+    restart: always
+    depends_on:
+      - backend
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: flowpilot-caddy
+    restart: always
+    env_file:
+      - ../.env
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - backend
+      - frontend
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  postgres_data:
+  caddy_data:
+  caddy_config:

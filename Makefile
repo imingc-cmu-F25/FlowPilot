@@ -1,16 +1,37 @@
 SHELL := /bin/bash
 
+COMPOSE_DEV  := docker compose -f infra/docker-compose.yml
+COMPOSE_PROD := docker compose -f infra/docker-compose.prod.yml
+
 .PHONY: up down logs frontend-dev backend-dev worker-dev \
-        ci ci-frontend ci-backend
+        ci ci-frontend ci-backend \
+        prod-up prod-down prod-logs prod-restart prod-rebuild
 
 up:
-	docker compose -f infra/docker-compose.yml up --build -d --remove-orphans
+	$(COMPOSE_DEV) up --build -d --remove-orphans
 
 down:
-	docker compose -f infra/docker-compose.yml down --remove-orphans
+	$(COMPOSE_DEV) down --remove-orphans
 
 logs:
-	docker compose -f infra/docker-compose.yml logs -f --tail=200
+	$(COMPOSE_DEV) logs -f --tail=200
+
+# ---- Production (EC2) ----
+
+prod-up:
+	$(COMPOSE_PROD) up --build -d --remove-orphans
+
+prod-down:
+	$(COMPOSE_PROD) down --remove-orphans
+
+prod-logs:
+	$(COMPOSE_PROD) logs -f --tail=200
+
+prod-restart:
+	$(COMPOSE_PROD) restart
+
+prod-rebuild:
+	$(COMPOSE_PROD) build --no-cache && $(COMPOSE_PROD) up -d --remove-orphans
 
 frontend-dev:
 	cd frontend && npm run dev

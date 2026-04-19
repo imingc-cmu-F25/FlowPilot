@@ -1,0 +1,35 @@
+# Caddy configuration for FlowPilot.
+#
+# - {$DOMAIN} and {$CADDY_EMAIL} are read from the environment (./.env)
+#   through docker-compose.prod.yml's env_file.
+# - HTTPS certificates are issued automatically by Let's Encrypt on first
+#   startup (make sure DNS A record of $DOMAIN points to this host AND ports
+#   80/443 are reachable from the public internet).
+
+{
+	email {$CADDY_EMAIL}
+}
+
+{$DOMAIN} {
+	encode gzip
+
+	# API traffic -> FastAPI backend.
+	handle /api/* {
+		reverse_proxy backend:8000
+	}
+
+	# Webhook triggers -> FastAPI backend (same origin, different path).
+	handle /hooks/* {
+		reverse_proxy backend:8000
+	}
+
+	# Everything else -> the built SPA served by the `frontend` container.
+	handle {
+		reverse_proxy frontend:80
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}
