@@ -1,6 +1,6 @@
 import { type FormEvent, useCallback, useEffect, useState } from "react";
 import { Link } from "react-router";
-import { HomeTopBar } from "../components/HomeTopBar";
+import { DashboardTopBar } from "../components/DashboardTopBar";
 import { getStoredUsername } from "../auth/storage";
 import {
   appendUserEmail,
@@ -129,7 +129,7 @@ export function ProfilePage() {
   if (!username) {
     return (
       <div className="min-h-screen bg-white">
-        <HomeTopBar />
+        <DashboardTopBar />
         <div className="mx-auto max-w-7xl px-6 py-8">
           <p className="text-gray-700">
             Sign in to manage your profile and email addresses.{" "}
@@ -147,7 +147,7 @@ export function ProfilePage() {
 
   return (
     <div className="min-h-screen bg-white">
-      <HomeTopBar />
+      <DashboardTopBar />
       <div className="mx-auto max-w-7xl px-6 py-8">
         <h1 className="mb-6 text-2xl font-semibold text-gray-900">Profile</h1>
         <div className="space-y-8">

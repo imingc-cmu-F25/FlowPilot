@@ -10,7 +10,7 @@ import {
   CheckCircle,
   Activity,
 } from "lucide-react";
-import { HomeTopBar } from "../components/HomeTopBar";
+import { DashboardTopBar } from "../components/DashboardTopBar";
 import { IconCard } from "../components/IconCard";
 
 const features = [
@@ -50,7 +50,7 @@ const benefits = [
 export function HomePage() {
   return (
     <div className="min-h-screen bg-white">
-      <HomeTopBar />
+      <DashboardTopBar />
 
       <section className="mx-auto max-w-7xl px-6 py-20">
         <div className="text-center">
