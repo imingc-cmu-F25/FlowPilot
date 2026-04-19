@@ -1,7 +1,7 @@
 SHELL := /bin/bash
 
 COMPOSE_DEV  := docker compose -f infra/docker-compose.yml
-COMPOSE_PROD := docker compose -f infra/docker-compose.prod.yml
+COMPOSE_PROD := docker compose --env-file .env -f infra/docker-compose.prod.yml
 
 .PHONY: up down logs frontend-dev backend-dev worker-dev \
         ci ci-frontend ci-backend \
