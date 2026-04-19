@@ -4,6 +4,7 @@ import { LoginPage } from "../pages/LoginPage";
 import { ProfilePage } from "../pages/ProfilePage";
 import { SignUpPage } from "../pages/SignUpPage";
 import { DashboardLayout } from "../components/DashboardLayout";
+import { DashboardPage } from "../pages/DashboardPage";
 import { WorkflowListPage } from "../pages/WorkflowListPage";
 import { WorkflowBuilderPage } from "../pages/WorkflowBuilderPage";
 import { ReportsPage } from "../pages/ReportsPage";
@@ -17,6 +18,7 @@ export const router = createBrowserRouter([
     path: "/dashboard",
     Component: DashboardLayout,
     children: [
+      { index: true, Component: DashboardPage },
       { path: "workflows", Component: WorkflowListPage },
       { path: "workflow/builder/:id?", Component: WorkflowBuilderPage },
       { path: "reports", Component: ReportsPage },

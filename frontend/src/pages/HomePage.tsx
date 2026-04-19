@@ -53,13 +53,13 @@ export function HomePage() {
       <HomeTopBar />
 
       <section className="mx-auto max-w-7xl px-6 py-20">
-        <div className="text-center">
-          <h1 className="mb-6 text-5xl font-bold text-gray-900">
+        <div className="mx-auto flex max-w-3xl flex-col items-center text-center">
+          <h1 className="mb-6 text-4xl font-bold leading-tight text-gray-900 sm:text-5xl">
             Automate Your Workflow
             <br />
             in Minutes
           </h1>
-          <p className="mx-auto mb-8 max-w-2xl text-xl text-gray-600">
+          <p className="mb-8 text-lg text-gray-600 sm:text-xl">
             FlowPilot helps students streamline their daily tasks with powerful
             workflow automation. No coding required.
           </p>
@@ -80,48 +80,42 @@ export function HomePage() {
           </div>
         </div>
 
-        <div className="mt-20 overflow-hidden rounded-2xl border border-gray-200 bg-gradient-to-br from-blue-50 to-purple-50 p-8 shadow-lg">
-          <div className="mx-auto max-w-4xl">
-            <div className="relative h-96 rounded-lg bg-white p-6 shadow-xl">
-              <div className="absolute inset-0 flex items-center justify-center">
-                <div className="relative">
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <div className="flex h-40 w-40 items-center justify-center rounded-full bg-blue-100">
-                      <Zap className="h-20 w-20 text-blue-600" />
-                    </div>
-                  </div>
-                  <div className="absolute -left-12 -top-12">
-                    <IconCard
-                      icon={Clock}
-                      label="Time Trigger"
-                      iconClassName="h-6 w-6 text-purple-600"
-                    />
-                  </div>
-                  <div className="absolute -right-12 -top-12">
-                    <IconCard
-                      icon={Webhook}
-                      label="Webhook"
-                      iconClassName="h-6 w-6 text-green-600"
-                    />
-                  </div>
-                  <div className="absolute -bottom-12 -left-12">
-                    <IconCard
-                      icon={Mail}
-                      label="Send Email"
-                      iconClassName="h-6 w-6 text-blue-600"
-                    />
-                  </div>
-                  <div className="absolute -bottom-12 -right-12">
-                    <IconCard
-                      icon={Bell}
-                      label="Notify"
-                      iconClassName="h-6 w-6 text-orange-600"
-                    />
-                  </div>
-                  <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
-                    <Activity className="h-8 w-8 text-blue-600" />
+        <div className="mt-20 overflow-hidden rounded-2xl border border-gray-200 bg-gradient-to-br from-blue-50 to-purple-50 p-6 shadow-lg sm:p-10">
+          <div className="mx-auto max-w-5xl rounded-xl bg-white p-6 shadow-xl sm:p-10">
+            <div className="grid grid-cols-2 items-center gap-6 sm:grid-cols-[1fr_auto_1fr] sm:gap-10">
+              <div className="flex flex-col gap-4">
+                <IconCard
+                  icon={Clock}
+                  label="Time Trigger"
+                  iconClassName="h-6 w-6 text-purple-600"
+                />
+                <IconCard
+                  icon={Mail}
+                  label="Send Email"
+                  iconClassName="h-6 w-6 text-blue-600"
+                />
+              </div>
+
+              <div className="col-span-2 flex items-center justify-center sm:col-span-1">
+                <div className="relative flex h-32 w-32 items-center justify-center rounded-full bg-blue-100 sm:h-40 sm:w-40">
+                  <Zap className="h-16 w-16 text-blue-600 sm:h-20 sm:w-20" />
+                  <div className="absolute -bottom-3 flex h-8 w-8 items-center justify-center rounded-full border border-blue-200 bg-white shadow">
+                    <Activity className="h-4 w-4 text-blue-600" />
                   </div>
                 </div>
+              </div>
+
+              <div className="flex flex-col gap-4">
+                <IconCard
+                  icon={Webhook}
+                  label="Webhook"
+                  iconClassName="h-6 w-6 text-green-600"
+                />
+                <IconCard
+                  icon={Bell}
+                  label="Notify"
+                  iconClassName="h-6 w-6 text-orange-600"
+                />
               </div>
             </div>
           </div>
