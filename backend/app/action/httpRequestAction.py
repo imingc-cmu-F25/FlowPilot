@@ -14,6 +14,11 @@ class HttpRequestActionStep(BaseModel):
     method: str = "GET"
     url_template: str  # supports {{variable}} placeholders
     headers: dict[str, str] = {}
+    # Raw request body sent verbatim (e.g. a JSON string for Slack / Discord
+    # incoming webhooks). Kept as an opaque string because different services
+    # expect different media types; the user is expected to set the matching
+    # Content-Type via `headers`.
+    body_template: str = ""
     input_mapping: dict[str, str] = {}  # param name → JSONPath into prior output
 
     def validate_step(self) -> None:

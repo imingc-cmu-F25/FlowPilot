@@ -249,6 +249,9 @@ export function WorkflowBuilderPage() {
               key,
               value,
             })),
+            body_template: String(
+              (step as { body_template?: string }).body_template ?? "",
+            ),
           },
         });
       }
@@ -452,6 +455,12 @@ export function WorkflowBuilderPage() {
             ((cfg.headers as { key: string; value: string }[]) ?? []).map(
               (h) => [String(h.key).trim(), String(h.value).trim()],
             ),
+          ),
+          // Body is sent verbatim, so we intentionally do NOT trim — a user
+          // might want a trailing newline for some APIs. Empty string is
+          // treated as "no body" by the backend runner.
+          body_template: String(
+            (cfg as { body_template?: string }).body_template ?? "",
           ),
         },
       };

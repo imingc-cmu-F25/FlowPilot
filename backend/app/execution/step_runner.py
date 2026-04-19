@@ -49,12 +49,22 @@ def build_execution_inputs(
         EXECUTION_INPUT_PREVIOUS_OUTPUT: previous_output or {},
     }
     if isinstance(step, HttpRequestActionStep):
+        # Only send a body for methods that actually carry one. GET/HEAD
+        # technically can, but most servers reject it and httpx would still
+        # set Content-Length: 0 when the template is empty — passing None
+        # here keeps the wire format clean.
+        raw_body = step.body_template or ""
+        body: str | None = (
+            raw_body
+            if raw_body and step.method in {"POST", "PUT", "PATCH", "DELETE"}
+            else None
+        )
         base.update(
             {
                 "method": step.method,
                 "url": step.url_template,
                 "headers": dict(step.headers),
-                "body": None,
+                "body": body,
             }
         )
         return base
