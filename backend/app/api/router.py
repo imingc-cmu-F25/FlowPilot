@@ -138,7 +138,9 @@ def update_workflow(
 
 @api_router.delete("/workflows/{wf_id}", status_code=204)
 def delete_workflow(wf_id: UUID, db: Session = Depends(get_db)):
-    WorkflowRepository(db).delete(wf_id)
+    deleted = WorkflowRepository(db).delete(wf_id)
+    if not deleted:
+        raise HTTPException(404, detail="Workflow not found")
 
 
 # Validation & Activation 

@@ -10,6 +10,7 @@ interface BuilderToolbarProps {
   onToggleAIChat: () => void;
   onSave: () => void;
   onDiscard: () => void;
+  onCancel: () => void;
   saving?: boolean;
 }
 
@@ -22,6 +23,7 @@ export function BuilderToolbar({
   onToggleAIChat,
   onSave,
   onDiscard,
+  onCancel,
   saving = false,
 }: BuilderToolbarProps) {
   const [confirming, setConfirming] = useState(false);
@@ -63,6 +65,12 @@ export function BuilderToolbar({
             <span className="hidden xs:inline">AI </span>Assistant
           </button>
           <button
+            onClick={onCancel}
+            className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 sm:px-4 sm:py-2"
+          >
+            Cancel
+          </button>
+          <button
             onClick={() => setConfirming(true)}
             className="flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-red-600 transition-colors hover:border-red-300 hover:bg-red-50 sm:gap-2 sm:px-4 sm:py-2"
           >
@@ -99,7 +107,10 @@ export function BuilderToolbar({
                 Keep editing
               </button>
               <button
-                onClick={() => { setConfirming(false); onDiscard(); }}
+                onClick={() => {
+                  setConfirming(false);
+                  onDiscard();
+                }}
                 className="flex-1 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-red-700"
               >
                 Discard

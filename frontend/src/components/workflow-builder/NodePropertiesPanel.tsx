@@ -22,6 +22,7 @@ interface NodePropertiesPanelProps {
   config: NodeConfig;
   onConfirm: (config: NodeConfig) => void;
   onRemove: () => void;
+  onCancel: () => void;
 }
 
 const SECTION_LABELS: Record<string, string> = {
@@ -40,11 +41,13 @@ export function NodePropertiesPanel({
   config,
   onConfirm,
   onRemove,
+  onCancel,
 }: NodePropertiesPanelProps) {
   const [draft, setDraft] = useState<NodeConfig>(config);
   const [confirming, setConfirming] = useState(false);
 
-  const label = SECTION_LABELS[category] ?? (type === "trigger" ? "Trigger" : "Action");
+  const label =
+    SECTION_LABELS[category] ?? (type === "trigger" ? "Trigger" : "Action");
 
   function handleConfirm() {
     onConfirm(draft);
@@ -52,6 +55,12 @@ export function NodePropertiesPanel({
 
   function handleDiscard() {
     setConfirming(true);
+  }
+
+  function handleCancel() {
+    setDraft(config);
+    setConfirming(false);
+    onCancel();
   }
 
   function handleDiscardConfirmed() {
@@ -69,9 +78,9 @@ export function NodePropertiesPanel({
           <h3 className="text-base font-semibold text-gray-900">{label}</h3>
         </div>
         <button
-          onClick={handleDiscard}
+          onClick={handleCancel}
           className="rounded p-1 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
-          aria-label="Discard and close"
+          aria-label="Cancel editing"
         >
           <X className="h-5 w-5" />
         </button>
@@ -116,6 +125,12 @@ export function NodePropertiesPanel({
       <div className="shrink-0 border-t border-gray-200 px-6 py-4">
         <div className="flex gap-3">
           <button
+            onClick={handleCancel}
+            className="flex-1 rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50"
+          >
+            Cancel
+          </button>
+          <button
             onClick={handleDiscard}
             className="flex-1 rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50"
           >
@@ -139,7 +154,8 @@ export function NodePropertiesPanel({
               <span className="text-sm font-semibold">Discard changes?</span>
             </div>
             <p className="mb-5 text-sm text-gray-600">
-              This {type} will be removed from the workflow and your changes won't be saved.
+              This {type} will be removed from the workflow and your changes
+              won't be saved.
             </p>
             <div className="flex gap-3">
               <button

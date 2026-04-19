@@ -1,4 +1,5 @@
 from uuid import UUID
+from datetime import UTC, datetime
 
 from pydantic import TypeAdapter
 from sqlalchemy.orm import Session
@@ -6,7 +7,7 @@ from sqlalchemy.orm import Session
 from app.action.action import ActionStep
 from app.db.schema import WorkflowORM, WorkflowStepORM, WorkflowTriggerORM
 from app.trigger.triggerConfig import TriggerConfig, WebhookTriggerConfig
-from app.workflow.workflow import WorkflowDefinition
+from app.workflow.workflow import WorkflowDefinition, WorkflowStatus
 
 # TypeAdapters for discriminated-union reconstruction
 _trigger_adapter = TypeAdapter(TriggerConfig)
@@ -35,15 +36,20 @@ class WorkflowRepository:
         self._db.flush()
         return wf
 
-    def delete(self, wf_id: UUID) -> None:
+    def delete(self, wf_id: UUID) -> bool:
+        """Soft-delete a workflow by archiving it."""
         orm = self._db.get(WorkflowORM, wf_id)
-        if orm is not None:
-            self._db.delete(orm)   # CASCADE removes trigger + steps rows
-            self._db.flush()
+        if orm is None:
+            return False
+        orm.status = WorkflowStatus.ARCHIVED.value
+        orm.enabled = False
+        orm.updated_at = datetime.now(UTC)
+        self._db.flush()
+        return True
 
     def get(self, wf_id: UUID) -> WorkflowDefinition | None:
         wf_orm = self._db.get(WorkflowORM, wf_id)
-        if wf_orm is None:
+        if wf_orm is None or wf_orm.status == WorkflowStatus.ARCHIVED.value:
             return None
         trigger_orm = (
             self._db.query(WorkflowTriggerORM)
@@ -62,7 +68,11 @@ class WorkflowRepository:
         """
         List all workflows
         """
-        wf_orms = self._db.query(WorkflowORM).all()
+        wf_orms = (
+            self._db.query(WorkflowORM)
+            .filter(WorkflowORM.status != WorkflowStatus.ARCHIVED.value)
+            .all()
+        )
         if not wf_orms:
             return []
         wf_ids = [wf.id for wf in wf_orms]
@@ -99,6 +109,7 @@ class WorkflowRepository:
             .join(WorkflowTriggerORM, WorkflowTriggerORM.workflow_id == WorkflowORM.id)
             .filter(
                 WorkflowORM.enabled.is_(True),
+                WorkflowORM.status != WorkflowStatus.ARCHIVED.value,
                 WorkflowTriggerORM.type == "webhook",
             )
             .all()

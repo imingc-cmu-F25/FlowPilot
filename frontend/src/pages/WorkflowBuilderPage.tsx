@@ -1,6 +1,13 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router";
-import { Clock, Webhook, Mail, Bell, Code, SlidersHorizontal } from "lucide-react";
+import {
+  Clock,
+  Webhook,
+  Mail,
+  Bell,
+  Code,
+  SlidersHorizontal,
+} from "lucide-react";
 import {
   NodePalette,
   type PaletteItem,
@@ -14,6 +21,7 @@ import { defaultConfigFor } from "../components/workflow-builder/nodeConfig";
 import {
   createSuggestion,
   createWorkflow,
+  deleteWorkflow,
   fetchWorkflow,
   updateWorkflow,
   type WorkflowDefinition,
@@ -81,6 +89,7 @@ export function WorkflowBuilderPage() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [loadingWorkflow, setLoadingWorkflow] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const toRecurrenceConfig = (value: unknown): TimeRecurrence | null => {
     if (!value || typeof value !== "object") return null;
@@ -164,9 +173,15 @@ export function WorkflowBuilderPage() {
         icon: SlidersHorizontal,
         config: {
           name: "Custom Trigger",
-          condition: String((wf.trigger as { condition?: string }).condition ?? ""),
-          source: String((wf.trigger as { source?: string }).source ?? "event_payload"),
-          description: String((wf.trigger as { description?: string }).description ?? ""),
+          condition: String(
+            (wf.trigger as { condition?: string }).condition ?? "",
+          ),
+          source: String(
+            (wf.trigger as { source?: string }).source ?? "event_payload",
+          ),
+          description: String(
+            (wf.trigger as { description?: string }).description ?? "",
+          ),
         },
       });
     }
@@ -435,6 +450,25 @@ export function WorkflowBuilderPage() {
     }
   };
 
+  const handleDiscardWorkflow = async () => {
+    if (!id) {
+      navigate("/dashboard/workflows");
+      return;
+    }
+    setSaveError(null);
+    setDeleting(true);
+    try {
+      await deleteWorkflow(id);
+      navigate("/dashboard/workflows");
+    } catch (e) {
+      setSaveError(
+        e instanceof Error ? e.message : "Failed to delete workflow.",
+      );
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   const sendChatMessage = async () => {
     const text = chatInput.trim();
     if (!text || chatLoading) return;
@@ -500,8 +534,9 @@ export function WorkflowBuilderPage() {
           onEnabledChange={setIsEnabled}
           onToggleAIChat={() => setShowAIChat(!showAIChat)}
           onSave={handleSave}
-          saving={saving}
-          onDiscard={() => navigate("/dashboard/workflows")}
+          saving={saving || deleting}
+          onDiscard={handleDiscardWorkflow}
+          onCancel={() => navigate("/dashboard/workflows")}
         />
 
         {loadingWorkflow && (
@@ -557,6 +592,7 @@ export function WorkflowBuilderPage() {
               config={selectedNode.config}
               onConfirm={(config) => confirmNodeConfig(selectedNode.id, config)}
               onRemove={() => removeNode(selectedNode.id)}
+              onCancel={() => setSelectedNode(null)}
             />
           </div>
         </>
