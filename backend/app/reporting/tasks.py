@@ -15,8 +15,7 @@ from datetime import UTC, datetime, timedelta
 from celery import shared_task
 from sqlalchemy.orm import Session
 
-from app.db.connector import get_engine
-from app.db.session import SessionFactory
+from app.db.session import new_session
 from app.reporting.service import make_reporting_service
 from app.user.repo import UserRepository
 
@@ -45,8 +44,7 @@ def generate_monthly_report(
     """Run the reporting pipeline for a single user and period."""
     period_start = datetime.fromisoformat(period_start_iso)
     period_end = datetime.fromisoformat(period_end_iso)
-    engine = get_engine()
-    session: Session = SessionFactory(bind=engine)()
+    session: Session = new_session()
     try:
         service = make_reporting_service(session)
         report = service.generate_monthly_report(
@@ -67,8 +65,7 @@ def generate_monthly_report(
 def dispatch_monthly_reports() -> int:
     """Fan out a generate_monthly_report task per user for the previous month."""
     period_start, period_end = _previous_month_bounds(datetime.now(UTC))
-    engine = get_engine()
-    session: Session = SessionFactory(bind=engine)()
+    session: Session = new_session()
     try:
         users = UserRepository(session).get_all_users()
         for user in users:

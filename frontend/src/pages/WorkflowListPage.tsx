@@ -67,6 +67,21 @@ export function WorkflowListPage() {
     void load();
   }, [load]);
 
+  // Background refresh: triggers that fire from the backend (time / webhook /
+  // custom) won't notify the frontend, so without this the "Recent runs" badge
+  // would stay stale until the user reloads. 10 s is a pragmatic compromise —
+  // fast enough that a one-minute time trigger visibly updates, slow enough
+  // that we don't hammer the API.
+  useEffect(() => {
+    if (workflows.length === 0) return;
+    const timer = setInterval(() => {
+      workflows.forEach((wf) => {
+        void loadRuns(wf.workflow_id);
+      });
+    }, 10_000);
+    return () => clearInterval(timer);
+  }, [workflows, loadRuns]);
+
   const handleRun = async (workflowId: string) => {
     setRunningIds((prev) => new Set(prev).add(workflowId));
     try {

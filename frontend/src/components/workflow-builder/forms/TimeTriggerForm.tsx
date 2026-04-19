@@ -1,19 +1,7 @@
-import type { TimeTriggerConfig } from "../nodeConfig";
+import { useEffect } from "react";
+import { browserTimezone, type TimeTriggerConfig } from "../nodeConfig";
 
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-
-const TIMEZONES = [
-  "UTC",
-  "America/New_York",
-  "America/Chicago",
-  "America/Denver",
-  "America/Los_Angeles",
-  "Europe/London",
-  "Europe/Paris",
-  "Asia/Tokyo",
-  "Asia/Shanghai",
-  "Australia/Sydney",
-];
 
 interface Props {
   config: TimeTriggerConfig;
@@ -22,6 +10,22 @@ interface Props {
 
 export function TimeTriggerForm({ config, onChange }: Props) {
   const rec = config.recurrence;
+  const detectedTz = browserTimezone();
+  const storedTzMismatch =
+    config.timezone && config.timezone !== detectedTz && config.timezone !== "UTC";
+
+  // Keep the stored timezone in sync with the browser's zone. The datetime
+  // picker's value is always interpreted as browser-local when we convert to
+  // UTC on save, so persisting anything else here would be a lie and would
+  // confuse users who later edit the workflow on a different machine.
+  useEffect(() => {
+    if (config.timezone !== detectedTz) {
+      onChange({ ...config, timezone: detectedTz });
+    }
+    // We intentionally run this once per detected zone change; listing the
+    // full config in the dep array would cause a loop with onChange.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [detectedTz]);
 
   function set<K extends keyof TimeTriggerConfig>(key: K, value: TimeTriggerConfig[K]) {
     onChange({ ...config, [key]: value });
@@ -77,22 +81,17 @@ export function TimeTriggerForm({ config, onChange }: Props) {
           onChange={(e) => set("trigger_at", e.target.value)}
           className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
         />
-      </div>
-
-      {/* Timezone */}
-      <div>
-        <label className="mb-1 block text-sm font-medium text-gray-700">Timezone</label>
-        <select
-          value={config.timezone}
-          onChange={(e) => set("timezone", e.target.value)}
-          className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-        >
-          {TIMEZONES.map((tz) => (
-            <option key={tz} value={tz}>
-              {tz}
-            </option>
-          ))}
-        </select>
+        <p className="mt-1 text-xs text-gray-500">
+          Interpreted in your timezone:{" "}
+          <span className="font-mono text-gray-700">{detectedTz}</span>
+        </p>
+        {storedTzMismatch && (
+          <p className="mt-1 text-xs text-amber-600">
+            This workflow was originally saved with timezone{" "}
+            <span className="font-mono">{config.timezone}</span>. Saving now
+            will re-stamp it with your current browser zone above.
+          </p>
+        )}
       </div>
 
       {/* Recurrence toggle */}

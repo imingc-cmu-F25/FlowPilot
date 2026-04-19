@@ -71,7 +71,7 @@ export function WorkflowBuilderPage() {
   const { id } = useParams();
   const navigate = useNavigate();
 
-  const [workflowName, setWorkflowName] = useState("New Workflow");
+  const [workflowName, setWorkflowName] = useState("");
   const [isEnabled, setIsEnabled] = useState(true);
   const [selectedNode, setSelectedNode] = useState<WorkflowNode | null>(null);
   const [showAIChat, setShowAIChat] = useState(false);
@@ -324,6 +324,30 @@ export function WorkflowBuilderPage() {
     if (selectedNode?.id === nodeId) setSelectedNode(null);
   };
 
+  // Swap an action with its neighbour while keeping the trigger pinned at
+  // index 0. We reorder the whole `nodes` array directly so React's list key
+  // (node.id) stays stable — this is what allows the DOM to animate rather
+  // than re-mount the card.
+  const moveAction = (nodeId: string, direction: "up" | "down") => {
+    const currentIndex = nodes.findIndex((n) => n.id === nodeId);
+    if (currentIndex === -1) return;
+    const node = nodes[currentIndex];
+    if (node.type !== "action") return;
+
+    const firstActionIndex = nodes.findIndex((n) => n.type === "action");
+    const lastActionIndex = nodes.map((n) => n.type).lastIndexOf("action");
+    if (firstActionIndex === -1) return;
+
+    const targetIndex =
+      direction === "up" ? currentIndex - 1 : currentIndex + 1;
+    if (targetIndex < firstActionIndex || targetIndex > lastActionIndex) return;
+
+    const next = [...nodes];
+    next[currentIndex] = nodes[targetIndex];
+    next[targetIndex] = node;
+    setNodes(next);
+  };
+
   const confirmNodeConfig = (nodeId: string, config: NodeConfig) => {
     const updated = nodes.map((n) => (n.id === nodeId ? { ...n, config } : n));
     setNodes(updated);
@@ -332,6 +356,11 @@ export function WorkflowBuilderPage() {
 
   const handleSave = async () => {
     setSaveError(null);
+    const trimmedName = workflowName.trim();
+    if (!trimmedName) {
+      setSaveError("Give this workflow a name before saving.");
+      return;
+    }
     const triggerNode = nodes.find((n) => n.type === "trigger");
     const actionNodes = nodes.filter((n) => n.type === "action");
     if (!triggerNode) {
@@ -433,7 +462,7 @@ export function WorkflowBuilderPage() {
       let savedId: string;
       if (id) {
         await updateWorkflow(id, {
-          name: workflowName,
+          name: trimmedName,
           enabled: isEnabled,
           trigger,
           steps,
@@ -442,7 +471,7 @@ export function WorkflowBuilderPage() {
       } else {
         const created = await createWorkflow({
           owner_name: getStoredUsername() ?? "alice",
-          name: workflowName,
+          name: trimmedName,
           enabled: isEnabled,
           trigger,
           steps,
@@ -556,24 +585,45 @@ export function WorkflowBuilderPage() {
 
         <div className="flex-1 overflow-y-auto p-4 sm:p-6 md:p-8">
           <div className="mx-auto w-full max-w-2xl space-y-4">
-            {nodes.map((node, index) => (
-              <div key={node.id}>
-                <WorkflowNodeCard
-                  title={node.title}
-                  config={(node.config as { name?: string }).name}
-                  type={node.type}
-                  icon={node.icon}
-                  selected={selectedNode?.id === node.id}
-                  onClick={() => setSelectedNode(node)}
-                  onRemove={() => removeNode(node.id)}
-                />
-                {index < nodes.length - 1 && (
-                  <div className="flex justify-center py-2">
-                    <div className="h-8 w-0.5 bg-gray-300" />
+            {(() => {
+              const firstActionIndex = nodes.findIndex(
+                (n) => n.type === "action",
+              );
+              const lastActionIndex = nodes
+                .map((n) => n.type)
+                .lastIndexOf("action");
+              return nodes.map((node, index) => {
+                const isAction = node.type === "action";
+                const canMoveUp = isAction && index > firstActionIndex;
+                const canMoveDown = isAction && index < lastActionIndex;
+                return (
+                  <div key={node.id}>
+                    <WorkflowNodeCard
+                      title={node.title}
+                      config={(node.config as { name?: string }).name}
+                      type={node.type}
+                      icon={node.icon}
+                      selected={selectedNode?.id === node.id}
+                      onClick={() => setSelectedNode(node)}
+                      onRemove={() => removeNode(node.id)}
+                      onMoveUp={
+                        isAction ? () => moveAction(node.id, "up") : undefined
+                      }
+                      onMoveDown={
+                        isAction ? () => moveAction(node.id, "down") : undefined
+                      }
+                      canMoveUp={canMoveUp}
+                      canMoveDown={canMoveDown}
+                    />
+                    {index < nodes.length - 1 && (
+                      <div className="flex justify-center py-2">
+                        <div className="h-8 w-0.5 bg-gray-300" />
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
-            ))}
+                );
+              });
+            })()}
           </div>
         </div>
       </div>

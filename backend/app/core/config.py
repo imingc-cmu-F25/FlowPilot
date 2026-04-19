@@ -37,6 +37,11 @@ class Settings(BaseSettings):
     google_client_id: str = ""
     google_client_secret: str = ""
 
+    # Hard upper bound on how long a single action (HTTP / email / calendar)
+    # may run before the engine treats it as a step failure. Prevents a hung
+    # external call from holding a worker indefinitely.
+    action_execution_timeout_seconds: float = 30.0
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

@@ -10,6 +10,18 @@ from app.db.connector import get_engine
 SessionFactory = sessionmaker(autoflush=False, autocommit=False, expire_on_commit=False)
 
 
+def new_session() -> Session:
+    """Return a fresh SQLAlchemy Session bound to the configured engine.
+
+    Celery tasks (and anything else running outside a FastAPI request) should
+    prefer this helper over calling SessionFactory directly — it's the single
+    place that decides how sessions get created, and it also prevents the
+    recurrent `SessionFactory(bind=engine)()` typo where an extra pair of
+    parentheses silently turned into a runtime TypeError.
+    """
+    return SessionFactory(bind=get_engine())
+
+
 def _ensure_users_emails_column() -> None:
     engine = get_engine()
     insp = inspect(engine)

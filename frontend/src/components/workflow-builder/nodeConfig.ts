@@ -61,6 +61,16 @@ export type NodeConfig =
 
 // ── default factories ────────────────────────────────────────────────────────
 
+export function browserTimezone(): string {
+  // Intl is available in every browser we target; fall back to UTC if the
+  // runtime somehow hides it (e.g. ancient test shim).
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  } catch {
+    return "UTC";
+  }
+}
+
 export function defaultTimeTrigger(): TimeTriggerConfig {
   const now = new Date();
   now.setSeconds(0, 0);
@@ -72,7 +82,12 @@ export function defaultTimeTrigger(): TimeTriggerConfig {
   return {
     name: "Time Trigger",
     trigger_at: local,
-    timezone: "UTC",
+    // The browser's IANA zone is the *only* timezone that matters at save-time
+    // because we convert the picker's wall-clock value via `new Date(...)`,
+    // which always interprets it in the browser's local zone. Storing the
+    // same zone here keeps the backend's display metadata consistent with
+    // the actual conversion.
+    timezone: browserTimezone(),
     recurrence: null,
   };
 }

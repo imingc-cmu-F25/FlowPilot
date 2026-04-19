@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from uuid import UUID
 
 from sqlalchemy.orm import Session
 
 from app.execution.context import ExecutionContext
 from app.execution.persistence import RunStatePersister
+from app.execution.states import StepRun, StepRunStatus
 from app.execution.states.base import StepFailureDecision
+from app.execution.step_run_repo import WorkflowStepRunRepository
 from app.execution.step_runner import build_execution_inputs, run_action_sync
 from app.workflow.repo import WorkflowRepository
 from app.workflow.run import RunStatus
@@ -52,6 +55,7 @@ class ExecutionEngine:
         steps = sorted(wf.steps, key=lambda s: s.step_order)
         persister = RunStatePersister(run_repo, run_id)
         ctx = ExecutionContext(run, persister)
+        step_run_repo = WorkflowStepRunRepository(self._db)
 
         if not steps:
             run_repo.mark_failed(run_id, "Workflow has no steps")
@@ -61,6 +65,8 @@ class ExecutionEngine:
         previous_output: dict | None = None
         for step in steps:
             while True:
+                started = datetime.now(UTC)
+                inputs: dict | None = None
                 try:
                     inputs = build_execution_inputs(
                         step,
@@ -70,6 +76,18 @@ class ExecutionEngine:
                     )
                     step_out = run_action_sync(step, inputs)
                 except Exception as exc:  # noqa: BLE001 — surface as run failure / retry
+                    step_run_repo.create(StepRun(
+                        run_id=run_id,
+                        step_order=step.step_order,
+                        step_name=step.name,
+                        action_type=str(step.action_type),
+                        status=StepRunStatus.FAILED,
+                        started_at=started,
+                        finished_at=datetime.now(UTC),
+                        inputs=inputs,
+                        output=None,
+                        error=str(exc),
+                    ))
                     decision = ctx.request_step_failure(exc)
                     self._db.commit()
                     if decision == StepFailureDecision.RETRY:
@@ -80,6 +98,18 @@ class ExecutionEngine:
                         continue
                     return
 
+                step_run_repo.create(StepRun(
+                    run_id=run_id,
+                    step_order=step.step_order,
+                    step_name=step.name,
+                    action_type=str(step.action_type),
+                    status=StepRunStatus.SUCCESS,
+                    started_at=started,
+                    finished_at=datetime.now(UTC),
+                    inputs=inputs,
+                    output=step_out if isinstance(step_out, dict) else {"value": step_out},
+                    error=None,
+                ))
                 previous_output = step_out
                 is_last = step == steps[-1]
                 ctx.request_step_success(step_out, is_last=is_last)

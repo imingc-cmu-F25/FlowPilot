@@ -271,9 +271,10 @@ export type WorkflowStepRun = {
 export async function triggerWorkflowRun(
   workflowId: string,
 ): Promise<{ run_id: string; status: string }> {
-  const res = await apiFetch(`${API_BASE}/workflows/${workflowId}/run`, {
+  const res = await apiFetch(`${API_BASE}/workflows/${workflowId}/runs`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ trigger_type: "manual", enqueue: true }),
   });
   const data = await parseBody(res);
   if (!res.ok) throw new Error(extractDetail(data) ?? res.statusText);
@@ -299,38 +300,6 @@ export async function fetchStepRuns(
   const data = await parseBody(res);
   if (!res.ok) throw new Error(extractDetail(data) ?? res.statusText);
   return data as WorkflowStepRun[];
-}
-
-export type MonthlyReport = {
-  user: string;
-  period: { year: number; month: number; start: string; end: string };
-  totals: {
-    runs: number;
-    succeeded: number;
-    failed: number;
-    success_rate: number;
-  };
-  by_trigger: Record<string, number>;
-  workflows_count: number;
-  summary: string;
-};
-
-export async function fetchMonthlyReport(
-  userName: string,
-  year?: number,
-  month?: number,
-): Promise<MonthlyReport> {
-  const params = new URLSearchParams();
-  if (year) params.set("year", String(year));
-  if (month) params.set("month", String(month));
-  const qs = params.toString();
-  const url =
-    `${API_BASE}/reports/monthly/${encodeURIComponent(userName)}` +
-    (qs ? `?${qs}` : "");
-  const res = await apiFetch(url);
-  const data = await parseBody(res);
-  if (!res.ok) throw new Error(extractDetail(data) ?? res.statusText);
-  return data as MonthlyReport;
 }
 
 export async function registerUser(body: {
