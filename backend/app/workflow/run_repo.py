@@ -35,6 +35,13 @@ class WorkflowRunRepository:
         self._db.flush()
         return run
 
+    def commit(self) -> None:
+        """Commit the underlying session. Exposed so callers that need the row
+        to be visible to other processes (e.g. a Celery worker about to pick up
+        the run) can flush the write without reaching into self._db directly.
+        """
+        self._db.commit()
+
     def try_claim_running(self, run_id: UUID) -> WorkflowRun | None:
         """
         Atomically transition PENDING -> RUNNING. Returns the run if claimed, else None.
@@ -129,6 +136,27 @@ class WorkflowRunRepository:
             .all()
         )
         return [self._to_domain(r) for r in rows]
+
+    def exists_with_trigger_type(
+        self,
+        workflow_id: UUID,
+        trigger_type: str,
+        since: datetime | None = None,
+    ) -> bool:
+        """Return True if any run exists for (workflow, trigger_type) since `since`.
+
+        Used by the time-trigger dispatcher to guarantee one-time triggers
+        fire exactly once, even when newer manual / webhook / custom runs are
+        logged in between and would otherwise hide the original time run from
+        a simple "latest run" check.
+        """
+        q = self._db.query(WorkflowRunORM.id).filter(
+            WorkflowRunORM.workflow_id == workflow_id,
+            WorkflowRunORM.trigger_type == trigger_type,
+        )
+        if since is not None:
+            q = q.filter(WorkflowRunORM.triggered_at >= since)
+        return self._db.query(q.exists()).scalar() is True
 
     def list_for_owner_in_period(
         self,

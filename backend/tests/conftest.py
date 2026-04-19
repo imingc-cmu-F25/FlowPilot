@@ -2,6 +2,8 @@ import os
 
 os.environ.setdefault("DATABASE_CHECK_ON_STARTUP", "false")
 os.environ["DATABASE_URL"] = "sqlite+pysqlite:///:memory:"
+# Run Celery tasks inline in tests so we don't need a Redis broker.
+os.environ.setdefault("CELERY_TASK_ALWAYS_EAGER", "true")
 
 import pytest
 from app.db.base import Base

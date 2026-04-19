@@ -1,4 +1,4 @@
-import { GripVertical, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, GripVertical, Trash2 } from "lucide-react";
 
 interface WorkflowNodeCardProps {
   title: string;
@@ -8,6 +8,10 @@ interface WorkflowNodeCardProps {
   selected: boolean;
   onClick: () => void;
   onRemove: () => void;
+  onMoveUp?: () => void;
+  onMoveDown?: () => void;
+  canMoveUp?: boolean;
+  canMoveDown?: boolean;
 }
 
 export function WorkflowNodeCard({
@@ -18,7 +22,12 @@ export function WorkflowNodeCard({
   selected,
   onClick,
   onRemove,
+  onMoveUp,
+  onMoveDown,
+  canMoveUp = false,
+  canMoveDown = false,
 }: WorkflowNodeCardProps) {
+  const showReorder = type === "action" && (onMoveUp || onMoveDown);
   return (
     <div
       onClick={onClick}
@@ -42,6 +51,32 @@ export function WorkflowNodeCard({
         >
           {type === "trigger" ? "Trigger" : "Action"}
         </span>
+        {showReorder && (
+          <div className="flex items-center gap-0.5">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onMoveUp?.();
+              }}
+              disabled={!canMoveUp}
+              className="rounded p-1.5 text-gray-400 transition-colors hover:bg-blue-50 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-gray-400"
+              aria-label="Move action up"
+            >
+              <ArrowUp className="h-4 w-4" />
+            </button>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onMoveDown?.();
+              }}
+              disabled={!canMoveDown}
+              className="rounded p-1.5 text-gray-400 transition-colors hover:bg-blue-50 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-gray-400"
+              aria-label="Move action down"
+            >
+              <ArrowDown className="h-4 w-4" />
+            </button>
+          </div>
+        )}
         <button
           onClick={(e) => {
             e.stopPropagation();

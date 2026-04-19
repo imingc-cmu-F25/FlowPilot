@@ -12,6 +12,7 @@ import { WorkflowNodeCard } from "../components/workflow-builder/WorkflowNodeCar
 import type { NodeConfig } from "../components/workflow-builder/nodeConfig";
 import { defaultConfigFor } from "../components/workflow-builder/nodeConfig";
 import {
+  activateWorkflow,
   createSuggestion,
   createWorkflow,
   fetchWorkflow,
@@ -70,7 +71,7 @@ export function WorkflowBuilderPage() {
   const { id } = useParams();
   const navigate = useNavigate();
 
-  const [workflowName, setWorkflowName] = useState("New Workflow");
+  const [workflowName, setWorkflowName] = useState("");
   const [isEnabled, setIsEnabled] = useState(true);
   const [selectedNode, setSelectedNode] = useState<WorkflowNode | null>(null);
   const [showAIChat, setShowAIChat] = useState(false);
@@ -110,7 +111,16 @@ export function WorkflowBuilderPage() {
     if (!iso) return "";
     const date = new Date(iso);
     if (Number.isNaN(date.getTime())) return "";
-    return date.toISOString().slice(0, 16);
+    // `<input type="datetime-local">` expects "YYYY-MM-DDTHH:mm" in the
+    // browser's local timezone. Using `.toISOString()` here would instead
+    // display UTC hours, which is confusing (a 12:42 UTC trigger would show
+    // as 12:42 in the picker even when the user is in PDT). Build the
+    // string from local components so edit mode round-trips correctly.
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return (
+      `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}` +
+      `T${pad(date.getHours())}:${pad(date.getMinutes())}`
+    );
   };
 
   const mapWorkflowToNodes = (wf: WorkflowDefinition): WorkflowNode[] => {
@@ -314,6 +324,30 @@ export function WorkflowBuilderPage() {
     if (selectedNode?.id === nodeId) setSelectedNode(null);
   };
 
+  // Swap an action with its neighbour while keeping the trigger pinned at
+  // index 0. We reorder the whole `nodes` array directly so React's list key
+  // (node.id) stays stable — this is what allows the DOM to animate rather
+  // than re-mount the card.
+  const moveAction = (nodeId: string, direction: "up" | "down") => {
+    const currentIndex = nodes.findIndex((n) => n.id === nodeId);
+    if (currentIndex === -1) return;
+    const node = nodes[currentIndex];
+    if (node.type !== "action") return;
+
+    const firstActionIndex = nodes.findIndex((n) => n.type === "action");
+    const lastActionIndex = nodes.map((n) => n.type).lastIndexOf("action");
+    if (firstActionIndex === -1) return;
+
+    const targetIndex =
+      direction === "up" ? currentIndex - 1 : currentIndex + 1;
+    if (targetIndex < firstActionIndex || targetIndex > lastActionIndex) return;
+
+    const next = [...nodes];
+    next[currentIndex] = nodes[targetIndex];
+    next[targetIndex] = node;
+    setNodes(next);
+  };
+
   const confirmNodeConfig = (nodeId: string, config: NodeConfig) => {
     const updated = nodes.map((n) => (n.id === nodeId ? { ...n, config } : n));
     setNodes(updated);
@@ -322,6 +356,11 @@ export function WorkflowBuilderPage() {
 
   const handleSave = async () => {
     setSaveError(null);
+    const trimmedName = workflowName.trim();
+    if (!trimmedName) {
+      setSaveError("Give this workflow a name before saving.");
+      return;
+    }
     const triggerNode = nodes.find((n) => n.type === "trigger");
     const actionNodes = nodes.filter((n) => n.type === "action");
     if (!triggerNode) {
@@ -341,9 +380,16 @@ export function WorkflowBuilderPage() {
             parameters: {
               trigger_at: (() => {
                 const raw = String(triggerCfg.trigger_at ?? "");
-                return raw.includes("+") || raw.endsWith("Z")
-                  ? raw
-                  : raw + ":00+00:00";
+                if (!raw) return raw;
+                // Already timezone-qualified (e.g. loaded back from API)? keep as is.
+                if (raw.includes("+") || raw.endsWith("Z")) return raw;
+                // `<input type="datetime-local">` gives "YYYY-MM-DDTHH:mm" in the
+                // browser's local timezone. `new Date(...).toISOString()` converts
+                // that to correct UTC. Previously we appended "+00:00", which
+                // incorrectly treated local time as UTC (e.g. 5:42 PDT -> stored
+                // as 5:42 UTC, 7 h earlier than intended).
+                const parsed = new Date(raw);
+                return Number.isNaN(parsed.getTime()) ? raw : parsed.toISOString();
               })(),
               timezone: triggerCfg.timezone ?? "UTC",
               recurrence: triggerCfg.recurrence ?? null,
@@ -398,11 +444,13 @@ export function WorkflowBuilderPage() {
         action_type: "http_request" as const,
         ...base,
         parameters: {
-          method: cfg.method ?? "GET",
-          url_template: cfg.url_template ?? "",
+          method: String(cfg.method ?? "GET").trim().toUpperCase(),
+          // Trim to avoid storing stray tabs/spaces from copy-paste that
+          // make httpx reject the URL at runtime.
+          url_template: String(cfg.url_template ?? "").trim(),
           headers: Object.fromEntries(
             ((cfg.headers as { key: string; value: string }[]) ?? []).map(
-              (h) => [h.key, h.value],
+              (h) => [String(h.key).trim(), String(h.value).trim()],
             ),
           ),
         },
@@ -411,21 +459,40 @@ export function WorkflowBuilderPage() {
 
     setSaving(true);
     try {
+      let savedId: string;
       if (id) {
         await updateWorkflow(id, {
-          name: workflowName,
+          name: trimmedName,
           enabled: isEnabled,
           trigger,
           steps,
         });
+        savedId = id;
       } else {
-        await createWorkflow({
+        const created = await createWorkflow({
           owner_name: getStoredUsername() ?? "alice",
-          name: workflowName,
+          name: trimmedName,
           enabled: isEnabled,
           trigger,
           steps,
         });
+        savedId = created.workflow_id;
+      }
+      // When the user saves the workflow with "enabled" on, promote it from
+      // draft to active so TriggerService / scheduler will actually pick it
+      // up. Activation also runs backend validation; if it fails, surface the
+      // error but keep the draft we already wrote.
+      if (isEnabled) {
+        try {
+          await activateWorkflow(savedId);
+        } catch (e) {
+          setSaveError(
+            e instanceof Error
+              ? `Workflow saved as draft, but activation failed: ${e.message}`
+              : "Workflow saved as draft, but activation failed.",
+          );
+          return;
+        }
       }
       navigate("/dashboard/workflows");
     } catch (e) {
@@ -518,24 +585,45 @@ export function WorkflowBuilderPage() {
 
         <div className="flex-1 overflow-y-auto p-4 sm:p-6 md:p-8">
           <div className="mx-auto w-full max-w-2xl space-y-4">
-            {nodes.map((node, index) => (
-              <div key={node.id}>
-                <WorkflowNodeCard
-                  title={node.title}
-                  config={(node.config as { name?: string }).name}
-                  type={node.type}
-                  icon={node.icon}
-                  selected={selectedNode?.id === node.id}
-                  onClick={() => setSelectedNode(node)}
-                  onRemove={() => removeNode(node.id)}
-                />
-                {index < nodes.length - 1 && (
-                  <div className="flex justify-center py-2">
-                    <div className="h-8 w-0.5 bg-gray-300" />
+            {(() => {
+              const firstActionIndex = nodes.findIndex(
+                (n) => n.type === "action",
+              );
+              const lastActionIndex = nodes
+                .map((n) => n.type)
+                .lastIndexOf("action");
+              return nodes.map((node, index) => {
+                const isAction = node.type === "action";
+                const canMoveUp = isAction && index > firstActionIndex;
+                const canMoveDown = isAction && index < lastActionIndex;
+                return (
+                  <div key={node.id}>
+                    <WorkflowNodeCard
+                      title={node.title}
+                      config={(node.config as { name?: string }).name}
+                      type={node.type}
+                      icon={node.icon}
+                      selected={selectedNode?.id === node.id}
+                      onClick={() => setSelectedNode(node)}
+                      onRemove={() => removeNode(node.id)}
+                      onMoveUp={
+                        isAction ? () => moveAction(node.id, "up") : undefined
+                      }
+                      onMoveDown={
+                        isAction ? () => moveAction(node.id, "down") : undefined
+                      }
+                      canMoveUp={canMoveUp}
+                      canMoveDown={canMoveDown}
+                    />
+                    {index < nodes.length - 1 && (
+                      <div className="flex justify-center py-2">
+                        <div className="h-8 w-0.5 bg-gray-300" />
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
-            ))}
+                );
+              });
+            })()}
           </div>
         </div>
       </div>

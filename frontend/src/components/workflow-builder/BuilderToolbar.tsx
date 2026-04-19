@@ -35,7 +35,8 @@ export function BuilderToolbar({
             type="text"
             value={workflowName}
             onChange={(e) => onNameChange(e.target.value)}
-            className="min-w-0 flex-1 truncate border-0 bg-transparent text-lg font-semibold text-gray-900 focus:outline-none focus:ring-0 sm:text-xl"
+            placeholder="Untitled workflow — click to name"
+            className="min-w-0 flex-1 truncate rounded-md border border-transparent bg-transparent px-2 py-1 text-lg font-semibold text-gray-900 placeholder:text-gray-400 placeholder:italic hover:border-gray-200 hover:bg-gray-50 focus:border-blue-300 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-200 sm:text-xl"
           />
           <label className="flex shrink-0 items-center gap-2">
             <input

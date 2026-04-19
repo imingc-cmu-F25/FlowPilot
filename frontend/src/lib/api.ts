@@ -1,3 +1,5 @@
+import { getStoredToken } from "../auth/storage";
+
 const envBase = (
   import.meta.env.VITE_API_BASE_URL as string | undefined
 )?.replace(/\/$/, "");
@@ -5,6 +7,15 @@ const envBase = (
 export const API_BASE = import.meta.env.PROD
   ? (envBase ?? "")
   : envBase || "http://127.0.0.1:8000/api";
+
+function authHeaders(extra?: HeadersInit): HeadersInit {
+  const token = getStoredToken();
+  const base: Record<string, string> = extra
+    ? { ...(extra as Record<string, string>) }
+    : {};
+  if (token) base["Authorization"] = `Bearer ${token}`;
+  return base;
+}
 
 export type EmailAddress = { address: string; alias: string };
 
@@ -42,8 +53,12 @@ async function parseBody(res: Response): Promise<unknown> {
 }
 
 async function apiFetch(input: string, init?: RequestInit): Promise<Response> {
+  const nextInit: RequestInit = {
+    ...init,
+    headers: authHeaders(init?.headers),
+  };
   try {
-    return await fetch(input, init);
+    return await fetch(input, nextInit);
   } catch (e) {
     if (e instanceof TypeError) {
       const hint = import.meta.env.DEV
@@ -205,6 +220,18 @@ export async function updateWorkflow(
   return data as WorkflowDefinition;
 }
 
+export async function activateWorkflow(
+  workflowId: string,
+): Promise<WorkflowDefinition> {
+  const res = await apiFetch(`${API_BASE}/workflows/${workflowId}/activate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+  });
+  const data = await parseBody(res);
+  if (!res.ok) throw new Error(extractDetail(data) ?? res.statusText);
+  return data as WorkflowDefinition;
+}
+
 export async function deleteWorkflow(workflowId: string): Promise<void> {
   const res = await apiFetch(`${API_BASE}/workflows/${workflowId}`, {
     method: "DELETE",
@@ -213,6 +240,66 @@ export async function deleteWorkflow(workflowId: string): Promise<void> {
     const data = await parseBody(res);
     throw new Error(extractDetail(data) ?? res.statusText);
   }
+}
+
+export type WorkflowRun = {
+  run_id: string;
+  workflow_id: string;
+  status: "pending" | "running" | "success" | "failed";
+  trigger_type: string;
+  triggered_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  error: string | null;
+  output: Record<string, unknown> | null;
+};
+
+export type WorkflowStepRun = {
+  id: string;
+  run_id: string;
+  step_order: number;
+  step_name: string;
+  action_type: string;
+  status: "success" | "failed" | "skipped";
+  started_at: string;
+  finished_at: string | null;
+  inputs: Record<string, unknown> | null;
+  output: Record<string, unknown> | null;
+  error: string | null;
+};
+
+export async function triggerWorkflowRun(
+  workflowId: string,
+): Promise<{ run_id: string; status: string }> {
+  const res = await apiFetch(`${API_BASE}/workflows/${workflowId}/runs`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ trigger_type: "manual", enqueue: true }),
+  });
+  const data = await parseBody(res);
+  if (!res.ok) throw new Error(extractDetail(data) ?? res.statusText);
+  return data as { run_id: string; status: string };
+}
+
+export async function fetchWorkflowRuns(
+  workflowId: string,
+): Promise<WorkflowRun[]> {
+  const res = await apiFetch(`${API_BASE}/workflows/${workflowId}/runs`);
+  const data = await parseBody(res);
+  if (!res.ok) throw new Error(extractDetail(data) ?? res.statusText);
+  return data as WorkflowRun[];
+}
+
+export async function fetchStepRuns(
+  workflowId: string,
+  runId: string,
+): Promise<WorkflowStepRun[]> {
+  const res = await apiFetch(
+    `${API_BASE}/workflows/${workflowId}/runs/${runId}/steps`,
+  );
+  const data = await parseBody(res);
+  if (!res.ok) throw new Error(extractDetail(data) ?? res.statusText);
+  return data as WorkflowStepRun[];
 }
 
 export async function registerUser(body: {

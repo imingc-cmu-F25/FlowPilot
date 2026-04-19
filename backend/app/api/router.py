@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime
 from uuid import UUID
 
@@ -7,9 +8,16 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.action.actionRegistry import ActionRegistry
+from app.core.auth import (
+    enforce_owner_match,
+    enforce_run_access,
+    enforce_workflow_access,
+    get_current_user_optional,
+)
 from app.core.config import settings
 from app.db.session import get_db
 from app.execution.contracts import enqueue_execute_run
+from app.execution.step_run_repo import WorkflowStepRunRepository
 from app.reporting.repo import ReportRepository
 from app.reporting.service import make_reporting_service
 from app.suggestion.base import UserInput
@@ -29,6 +37,8 @@ from app.workflow.service import (
 )
 from app.workflow.validator import validate_workflow
 from app.workflow.workflow import WorkflowStatus
+
+logger = logging.getLogger(__name__)
 
 api_router = APIRouter()
 
@@ -63,8 +73,15 @@ def healthcheck() -> dict[str, str]:
 
 # Workflow 
 @api_router.get("/workflows")
-def list_workflows(db: Session = Depends(get_db)):
-    return WorkflowRepository(db).list_all()
+def list_workflows(
+    db: Session = Depends(get_db),
+    current_user: str | None = Depends(get_current_user_optional),
+):
+    repo = WorkflowRepository(db)
+    workflows = repo.list_all()
+    if current_user is not None:
+        workflows = [wf for wf in workflows if wf.owner_name == current_user]
+    return workflows
 
 
 @api_router.post("/workflows", status_code=201)
@@ -72,8 +89,11 @@ def create_workflow(
     cmd: CreateWorkflowCommand,
     db: Session = Depends(get_db),
     svc: WorkflowService = Depends(make_workflow_service),
+    current_user: str | None = Depends(get_current_user_optional),
 ):
     try:
+        if current_user is not None:
+            cmd = cmd.model_copy(update={"owner_name": current_user})
         if UserRepository(db).get_by_name(cmd.owner_name) is None:
             raise HTTPException(
                 422,
@@ -95,16 +115,20 @@ def create_workflow(
     except IntegrityError as exc:
         raise HTTPException(422, detail=_format_integrity_error(exc))
     
-    except Exception:
-        raise HTTPException(500, detail={"message": "Unexpected server error"})
+    except Exception as exc:
+        logger.exception("Unhandled error creating workflow")
+        raise HTTPException(
+            500, detail={"message": f"Unexpected server error: {type(exc).__name__}: {exc}"}
+        )
 
 
 @api_router.get("/workflows/{wf_id}")
-def get_workflow(wf_id: UUID, db: Session = Depends(get_db)):
-    wf = WorkflowRepository(db).get(wf_id)
-    if wf is None:
-        raise HTTPException(404, detail="Workflow not found")
-    return wf
+def get_workflow(
+    wf_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: str | None = Depends(get_current_user_optional),
+):
+    return enforce_workflow_access(db, wf_id, current_user)
 
 
 @api_router.put("/workflows/{wf_id}")
@@ -113,13 +137,11 @@ def update_workflow(
     cmd: UpdateWorkflowCommand,
     db: Session = Depends(get_db),
     svc: WorkflowService = Depends(make_workflow_service),
+    current_user: str | None = Depends(get_current_user_optional),
 ):
+    existing = enforce_workflow_access(db, wf_id, current_user)
     repo = WorkflowRepository(db)
-    existing = repo.get(wf_id)
-    # Find existing workflow for editing
-    if existing is None:
-        raise HTTPException(404, detail="Workflow not found")
-    
+
     try:
         updated = svc.update_workflow(existing, cmd)
         return repo.save(updated)
@@ -132,56 +154,87 @@ def update_workflow(
     except IntegrityError as exc:
         raise HTTPException(422, detail=_format_integrity_error(exc))
     
-    except Exception:
-        raise HTTPException(500, detail={"message": "Unexpected server error"})
+    except Exception as exc:
+        logger.exception("Unhandled error updating workflow %s", wf_id)
+        raise HTTPException(
+            500, detail={"message": f"Unexpected server error: {type(exc).__name__}: {exc}"}
+        )
 
 
 @api_router.delete("/workflows/{wf_id}", status_code=204)
-def delete_workflow(wf_id: UUID, db: Session = Depends(get_db)):
+def delete_workflow(
+    wf_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: str | None = Depends(get_current_user_optional),
+):
+    # Idempotent delete: if the workflow doesn't exist OR doesn't belong to
+    # the caller, silently succeed (204) — do not leak existence.
+    wf = WorkflowRepository(db).get(wf_id)
+    if wf is None:
+        return
+    if current_user is not None and wf.owner_name != current_user:
+        return
     WorkflowRepository(db).delete(wf_id)
 
 
 # Validation & Activation 
 @api_router.post("/workflows/{wf_id}/validate")
-def validate(wf_id: UUID, db: Session = Depends(get_db)):
-    wf = WorkflowRepository(db).get(wf_id)
-    
-    if wf is None:
-        raise HTTPException(404, detail="Workflow not found")
-    
+def validate(
+    wf_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: str | None = Depends(get_current_user_optional),
+):
+    wf = enforce_workflow_access(db, wf_id, current_user)
     errors = validate_workflow(wf)
     return {"valid": len(errors) == 0, "errors": errors}
 
 
 @api_router.post("/workflows/{wf_id}/activate")
-def activate_workflow(wf_id: UUID, db: Session = Depends(get_db)):
-    repo = WorkflowRepository(db)
-    wf = repo.get(wf_id)
-    if wf is None:
-        raise HTTPException(404, detail="Workflow not found")
-    
+def activate_workflow(
+    wf_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: str | None = Depends(get_current_user_optional),
+):
+    wf = enforce_workflow_access(db, wf_id, current_user)
+
     errors = validate_workflow(wf)
     if errors:
         raise HTTPException(422, detail={"message": "Workflow is invalid", "errors": errors})
-    
+
     activated = wf.model_copy(update={"status": WorkflowStatus.ACTIVE, "enabled": True})
-    return repo.save(activated)
+    return WorkflowRepository(db).save(activated)
 
 
 # Workflow Runs
 @api_router.get("/workflows/{wf_id}/runs")
-def list_runs(wf_id: UUID, db: Session = Depends(get_db)):
-    if WorkflowRepository(db).get(wf_id) is None:
-        raise HTTPException(404, detail="Workflow not found")
+def list_runs(
+    wf_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: str | None = Depends(get_current_user_optional),
+):
+    enforce_workflow_access(db, wf_id, current_user)
     return WorkflowRunRepository(db).list_for_workflow(wf_id)
 
 
 @api_router.get("/workflows/{wf_id}/runs/{run_id}")
-def get_run(wf_id: UUID, run_id: UUID, db: Session = Depends(get_db)):
-    run = WorkflowRunRepository(db).get(run_id)
-    if run is None or run.workflow_id != wf_id:
-        raise HTTPException(404, detail="Run not found")
-    return run
+def get_run(
+    wf_id: UUID,
+    run_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: str | None = Depends(get_current_user_optional),
+):
+    return enforce_run_access(db, wf_id, run_id, current_user)
+
+
+@api_router.get("/workflows/{wf_id}/runs/{run_id}/steps", tags=["workflow-runs"])
+def list_step_runs(
+    wf_id: UUID,
+    run_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: str | None = Depends(get_current_user_optional),
+):
+    enforce_run_access(db, wf_id, run_id, current_user)
+    return WorkflowStepRunRepository(db).list_for_run(run_id)
 
 
 class CreateWorkflowRunBody(BaseModel):
@@ -200,11 +253,10 @@ def create_workflow_run(
     wf_id: UUID,
     body: CreateWorkflowRunBody,
     db: Session = Depends(get_db),
+    current_user: str | None = Depends(get_current_user_optional),
 ):
     """Create a workflow run row (pending) and optionally enqueue the execution engine."""
-    wf_repo = WorkflowRepository(db)
-    if wf_repo.get(wf_id) is None:
-        raise HTTPException(404, detail="Workflow not found")
+    enforce_workflow_access(db, wf_id, current_user)
     run = WorkflowRun(
         workflow_id=wf_id,
         status=RunStatus.PENDING,
@@ -213,6 +265,11 @@ def create_workflow_run(
     )
     created = WorkflowRunRepository(db).create(run)
     if body.enqueue:
+        # Commit *before* enqueueing so the Celery worker can see this row.
+        # Without this, a fast worker can pick up the task while the API's
+        # transaction is still open, try_claim_running sees no PENDING row,
+        # and the engine silently exits leaving status="pending" forever.
+        db.commit()
         enqueue_execute_run(created.run_id)
     return {"run_id": str(created.run_id), "status": created.status.value, "enqueued": body.enqueue}
 
@@ -256,6 +313,7 @@ async def ingest_webhook(
         "emitted_runs": emitted,
     }
 
+
 # Registry
 @api_router.get("/registry/actions")
 def list_actions():
@@ -275,27 +333,43 @@ class GenerateReportBody(BaseModel):
 
 
 @api_router.get("/reports", tags=["reports"])
-def list_reports(owner_name: str, db: Session = Depends(get_db)):
+def list_reports(
+    owner_name: str,
+    db: Session = Depends(get_db),
+    current_user: str | None = Depends(get_current_user_optional),
+):
+    enforce_owner_match(owner_name, current_user)
     if UserRepository(db).get_by_name(owner_name) is None:
         raise HTTPException(404, detail="Owner not found")
     return ReportRepository(db).list_for_owner(owner_name)
 
 
 @api_router.get("/reports/{report_id}", tags=["reports"])
-def get_report(report_id: UUID, db: Session = Depends(get_db)):
+def get_report(
+    report_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: str | None = Depends(get_current_user_optional),
+):
     report = ReportRepository(db).get(report_id)
     if report is None:
+        raise HTTPException(404, detail="Report not found")
+    if current_user is not None and report.owner_name != current_user:
         raise HTTPException(404, detail="Report not found")
     return report
 
 
 @api_router.post("/reports/generate", status_code=201, tags=["reports"])
-def generate_report(body: GenerateReportBody, db: Session = Depends(get_db)):
+def generate_report(
+    body: GenerateReportBody,
+    db: Session = Depends(get_db),
+    current_user: str | None = Depends(get_current_user_optional),
+):
     """Synchronous manual trigger for the reporting pipeline.
 
     Runs the pipeline in-process (no Celery) for dev/testing. The async,
     beat-driven path enqueues reporting.generate_monthly_report via Celery.
     """
+    enforce_owner_match(body.owner_name, current_user)
     if UserRepository(db).get_by_name(body.owner_name) is None:
         raise HTTPException(404, detail="Owner not found")
     if body.period_end <= body.period_start:
@@ -335,9 +409,16 @@ def _serialize_suggestion(orm) -> dict:
 
 
 @api_router.post("/suggestions", status_code=201, tags=["suggestions"])
-async def create_suggestion(body: CreateSuggestionBody, db: Session = Depends(get_db)):
+async def create_suggestion(
+    body: CreateSuggestionBody,
+    db: Session = Depends(get_db),
+    current_user: str | None = Depends(get_current_user_optional),
+):
+    effective_user = current_user if current_user is not None else body.user_name
+    if current_user is not None and body.user_name and body.user_name != current_user:
+        raise HTTPException(403, detail="Cannot create suggestion for another user")
     service = SuggestionService(db)
-    user_input = UserInput(raw_text=body.raw_text, user_name=body.user_name)
+    user_input = UserInput(raw_text=body.raw_text, user_name=effective_user)
     try:
         orm = await service.suggest(user_input)
     except Exception as exc:  # noqa: BLE001
@@ -346,25 +427,42 @@ async def create_suggestion(body: CreateSuggestionBody, db: Session = Depends(ge
 
 
 @api_router.get("/suggestions", tags=["suggestions"])
-def list_suggestions(user_name: str, db: Session = Depends(get_db)):
+def list_suggestions(
+    user_name: str,
+    db: Session = Depends(get_db),
+    current_user: str | None = Depends(get_current_user_optional),
+):
+    enforce_owner_match(user_name, current_user)
     repo = SuggestionRepository(db)
     return [_serialize_suggestion(s) for s in repo.list_for_user(user_name)]
 
 
 @api_router.get("/suggestions/{suggestion_id}", tags=["suggestions"])
-def get_suggestion(suggestion_id: UUID, db: Session = Depends(get_db)):
+def get_suggestion(
+    suggestion_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: str | None = Depends(get_current_user_optional),
+):
     repo = SuggestionRepository(db)
     orm = repo.get(suggestion_id)
     if orm is None:
+        raise HTTPException(404, detail="Suggestion not found")
+    if current_user is not None and orm.user_name and orm.user_name != current_user:
         raise HTTPException(404, detail="Suggestion not found")
     return _serialize_suggestion(orm)
 
 
 @api_router.post("/suggestions/{suggestion_id}/accept", tags=["suggestions"])
-def accept_suggestion(suggestion_id: UUID, db: Session = Depends(get_db)):
+def accept_suggestion(
+    suggestion_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: str | None = Depends(get_current_user_optional),
+):
     repo = SuggestionRepository(db)
     orm = repo.get(suggestion_id)
     if orm is None:
+        raise HTTPException(404, detail="Suggestion not found")
+    if current_user is not None and orm.user_name and orm.user_name != current_user:
         raise HTTPException(404, detail="Suggestion not found")
     if not orm.workflow_draft:
         raise HTTPException(422, detail="Suggestion has no workflow draft to accept")

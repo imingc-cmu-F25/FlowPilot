@@ -35,5 +35,8 @@ class TriggerService:
 
         created = self._run_repo.create(run)
         if enqueue:
+            # Commit before enqueueing so the Celery worker can actually see
+            # the new PENDING row (see create_workflow_run for the same fix).
+            self._run_repo.commit()
             enqueue_execute_run(created.run_id)
         return created
