@@ -110,6 +110,8 @@ def test_data_collection_filter_returns_runs_in_period(db_session):
     result = filt.process(data)
     assert len(result.raw_execution_records) == 1
     assert result.raw_execution_records[0]["status"] == "success"
+    # workflow names are captured for display alongside raw run records
+    assert result.workflow_names == {str(wf.workflow_id): wf.name}
 
 
 def test_data_collection_filter_scopes_by_owner(db_session):
@@ -135,6 +137,9 @@ def test_data_collection_filter_scopes_by_owner(db_session):
     ))
     assert len(result.raw_execution_records) == 1
     assert result.raw_execution_records[0]["workflow_id"] == str(wf_a.workflow_id)
+    # workflow_names must be scoped to the requested owner, not leak owner-b
+    assert str(wf_b.workflow_id) not in result.workflow_names
+    assert result.workflow_names == {str(wf_a.workflow_id): wf_a.name}
 
 
 # AggregationFilter
@@ -167,6 +172,7 @@ def test_aggregation_filter_counts_and_success_rate():
         period_start=PERIOD_START,
         period_end=PERIOD_END,
         raw_execution_records=records,
+        workflow_names={"wf-a": "Alpha", "wf-b": "Bravo", "wf-unused": "Charlie"},
     )
     metrics = AggregationFilter().process(data).aggregated_metrics
     assert metrics is not None
@@ -177,6 +183,8 @@ def test_aggregation_filter_counts_and_success_rate():
     assert metrics.runs_per_workflow == {"wf-a": 2, "wf-b": 2}
     assert metrics.avg_duration_seconds == 4.0  # (2+4+6)/3
     assert metrics.top_error_messages == ["boom"]
+    # Only workflows that produced runs in the period appear in workflow_names.
+    assert metrics.workflow_names == {"wf-a": "Alpha", "wf-b": "Bravo"}
 
 
 # FormattingFilter

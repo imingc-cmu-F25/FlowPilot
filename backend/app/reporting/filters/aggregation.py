@@ -18,15 +18,24 @@ _TOP_ERRORS_LIMIT = 5
 
 class AggregationFilter(Filter):
     def process(self, data: PipeData) -> PipeData:
-        records = data.raw_execution_records
-        metrics = _compute_metrics(records)
+        metrics = _compute_metrics(data.raw_execution_records, data.workflow_names)
         return data.model_copy(update={"aggregated_metrics": metrics})
 
 
-def _compute_metrics(records: list[dict[str, Any]]) -> AggregatedMetrics:
+def _compute_metrics(
+    records: list[dict[str, Any]],
+    workflow_names: dict[str, str],
+) -> AggregatedMetrics:
+    # Only surface names for workflows that actually appear in this period's
+    # runs — otherwise unused workflows would inflate the report.
+    active_ids = {r.get("workflow_id") for r in records if r.get("workflow_id")}
+    names_for_report = {
+        wf_id: name for wf_id, name in workflow_names.items() if wf_id in active_ids
+    }
+
     total = len(records)
     if total == 0:
-        return AggregatedMetrics()
+        return AggregatedMetrics(workflow_names=names_for_report)
 
     success_count = sum(1 for r in records if r.get("status") == "success")
     failure_count = sum(1 for r in records if r.get("status") == "failed")
@@ -61,5 +70,6 @@ def _compute_metrics(records: list[dict[str, Any]]) -> AggregatedMetrics:
         success_rate=success_rate,
         avg_duration_seconds=avg_duration,
         runs_per_workflow=runs_per_workflow,
+        workflow_names=names_for_report,
         top_error_messages=top_errors,
     )

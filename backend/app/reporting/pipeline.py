@@ -34,6 +34,7 @@ class PipeData(BaseModel):
 
     # populated by DataCollectionFilter
     raw_execution_records: list[dict[str, Any]] = Field(default_factory=list)
+    workflow_names: dict[str, str] = Field(default_factory=dict)
     external_logs: list[dict[str, Any]] = Field(default_factory=list)
 
     # populated by AggregationFilter

@@ -31,6 +31,7 @@ def test_monthly_report_defaults():
     assert report.status == ReportStatus.PENDING
     assert report.metrics.total_runs == 0
     assert report.metrics.runs_per_workflow == {}
+    assert report.metrics.workflow_names == {}
     assert report.ai_summary == ""
     assert report.report_id is not None
 
@@ -43,11 +44,13 @@ def test_aggregated_metrics_fields():
         success_rate=0.8,
         avg_duration_seconds=1.5,
         runs_per_workflow={"wf-a": 6, "wf-b": 4},
+        workflow_names={"wf-a": "Alpha", "wf-b": "Bravo"},
         top_error_messages=["boom", "oops"],
     )
     dumped = metrics.model_dump()
     assert dumped["total_runs"] == 10
     assert dumped["runs_per_workflow"]["wf-a"] == 6
+    assert dumped["workflow_names"]["wf-a"] == "Alpha"
 
 
 def test_report_orm_persists_and_loads():

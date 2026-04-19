@@ -37,4 +37,8 @@ class DataCollectionFilter(Filter):
             }
             for run in runs
         ]
-        return data.model_copy(update={"raw_execution_records": records})
+        workflow_names = self._run_repo.list_owner_workflow_names(data.owner_name)
+        return data.model_copy(update={
+            "raw_execution_records": records,
+            "workflow_names": workflow_names,
+        })
