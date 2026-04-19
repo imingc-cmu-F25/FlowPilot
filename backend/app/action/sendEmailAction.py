@@ -1,5 +1,5 @@
-from typing import Literal
 import logging
+from typing import Literal
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field
@@ -79,7 +79,10 @@ class SendEmailAction(BaseAction):
                 smtp.login(settings.smtp_user, settings.smtp_password)
             smtp.send_message(msg)
 
-        print(f"[send_email] sent to={inputs.get('to')} subject={inputs.get('subject')!r}", flush=True)
+        print(
+            f"[send_email] sent to={inputs.get('to')} subject={inputs.get('subject')!r}",
+            flush=True,
+        )
         logger.info("send_email.success", extra={"to": inputs.get("to")})
         return {"status": "sent", "to": inputs["to"]}
 

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
 import logging
+from datetime import UTC, datetime, timedelta
 
 from celery import shared_task
 from sqlalchemy.orm import Session
@@ -25,7 +25,13 @@ def dispatch_time_triggers() -> int:
     logger.info("[time_trigger] scan started")
 
     engine = get_engine()
-    session: Session = SessionFactory(bind=engine)
+    session_or_factory = SessionFactory(bind=engine)
+    session: Session = (
+        session_or_factory()
+        if callable(session_or_factory)
+        and not hasattr(session_or_factory, "commit")
+        else session_or_factory
+    )
 
     emitted = 0
     try:
@@ -55,7 +61,11 @@ def dispatch_time_triggers() -> int:
             )
 
             print(
-                f"[time_trigger] workflow={wf.workflow_id} trigger_at={cfg.trigger_at.isoformat()} due={due}",
+                (
+                    "[time_trigger] "
+                    f"workflow={wf.workflow_id} "
+                    f"trigger_at={cfg.trigger_at.isoformat()} due={due}"
+                ),
                 flush=True,
             )
             logger.info(
@@ -78,8 +88,15 @@ def dispatch_time_triggers() -> int:
                     RunStatus.RUNNING,
                     RunStatus.SUCCESS,
                 }:
-                    print(f"[time_trigger] workflow={wf.workflow_id} skipped (one-shot already ran)", flush=True)
-                    logger.info("[time_trigger] workflow=%s skipped (one-shot already ran)", wf.workflow_id)
+                    print(
+                        f"[time_trigger] workflow={wf.workflow_id} "
+                        "skipped (one-shot already ran)",
+                        flush=True,
+                    )
+                    logger.info(
+                        "[time_trigger] workflow=%s skipped (one-shot already ran)",
+                        wf.workflow_id,
+                    )
                     continue
 
                 # only skip if a run was dispatched very recently.
@@ -88,8 +105,15 @@ def dispatch_time_triggers() -> int:
                     and last_run.triggered_at >= now - timedelta(seconds=60)
                     and last_run.status in {RunStatus.PENDING, RunStatus.RUNNING, RunStatus.SUCCESS}
                 ):
-                    print(f"[time_trigger] workflow={wf.workflow_id} skipped (dispatched recently)", flush=True)
-                    logger.info("[time_trigger] workflow=%s skipped (dispatched recently)", wf.workflow_id)
+                    print(
+                        f"[time_trigger] workflow={wf.workflow_id} "
+                        "skipped (dispatched recently)",
+                        flush=True,
+                    )
+                    logger.info(
+                        "[time_trigger] workflow=%s skipped (dispatched recently)",
+                        wf.workflow_id,
+                    )
                     continue
 
             print(f"[time_trigger] dispatching workflow={wf.workflow_id}", flush=True)
