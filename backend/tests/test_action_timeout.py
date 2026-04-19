@@ -4,7 +4,6 @@ import asyncio
 from uuid import uuid4
 
 import pytest
-
 from app.action.action import ActionType
 from app.action.sendEmailAction import SendEmailActionStep
 from app.execution.step_runner import ActionTimeoutError, run_action_sync

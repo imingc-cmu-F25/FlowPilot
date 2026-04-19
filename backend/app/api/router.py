@@ -7,8 +7,6 @@ from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-logger = logging.getLogger(__name__)
-
 from app.action.actionRegistry import ActionRegistry
 from app.core.auth import (
     enforce_owner_match,
@@ -39,6 +37,8 @@ from app.workflow.service import (
 )
 from app.workflow.validator import validate_workflow
 from app.workflow.workflow import WorkflowStatus
+
+logger = logging.getLogger(__name__)
 
 api_router = APIRouter()
 

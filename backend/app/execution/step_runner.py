@@ -103,7 +103,7 @@ def run_action_sync(
     async def _with_timeout() -> dict[str, Any]:
         try:
             return await asyncio.wait_for(action.execute(inputs), timeout=limit)
-        except asyncio.TimeoutError as exc:
+        except TimeoutError as exc:
             raise ActionTimeoutError(
                 f"Action {type(action).__name__} exceeded {limit:.1f}s timeout"
             ) from exc
