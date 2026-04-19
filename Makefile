@@ -1,6 +1,7 @@
 SHELL := /bin/bash
 
-.PHONY: up down logs frontend-dev backend-dev worker-dev
+.PHONY: up down logs frontend-dev backend-dev worker-dev \
+        ci ci-frontend ci-backend
 
 up:
 	docker compose -f infra/docker-compose.yml up --build -d --remove-orphans
@@ -19,3 +20,11 @@ backend-dev:
 
 worker-dev:
 	cd backend && uv run celery -A app.worker.celery_app worker --loglevel=info
+
+ci-frontend:
+	cd frontend && npm ci && npm run lint && npm run build
+
+ci-backend:
+	cd backend && uv sync --all-groups && uv run ruff check . && uv run pytest
+
+ci: ci-frontend ci-backend
