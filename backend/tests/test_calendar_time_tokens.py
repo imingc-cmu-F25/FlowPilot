@@ -15,7 +15,6 @@ from unittest.mock import patch
 from uuid import uuid4
 
 import pytest
-
 from app.action.calendarAction import (
     CalendarActionStep,
     CalendarCreateEventAction,

@@ -627,7 +627,10 @@ async def ingest_webhook(
         if emitted > 0:
             text = f"FlowPilot: started {emitted} workflow(s) ✓"
         elif skipped_filter > 0:
-            text = "FlowPilot: request received but no matching workflow accepted it (check event/header filters)."
+            text = (
+                "FlowPilot: request received but no matching workflow accepted it "
+                "(check event/header filters)."
+            )
         else:
             text = "FlowPilot: no workflow is listening on this path/method."
         return JSONResponse({"response_type": "ephemeral", "text": text})
