@@ -139,6 +139,9 @@ export type WorkflowDefinition = {
   description: string;
   enabled: boolean;
   status: WorkflowStatus;
+  // Per-workflow retry budget applied to runs emitted by any trigger. 0
+  // keeps "fail on first error"; backend caps at 10.
+  max_retries: number;
   trigger: { type: string; [key: string]: unknown };
   steps: {
     action_type: string;
@@ -155,6 +158,7 @@ export type CreateWorkflowPayload = {
   name: string;
   description?: string;
   enabled: boolean;
+  max_retries?: number;
   trigger: { type: string; parameters: Record<string, unknown> };
   steps: {
     action_type: string;
@@ -197,6 +201,7 @@ export type UpdateWorkflowPayload = {
   name?: string;
   description?: string;
   enabled?: boolean;
+  max_retries?: number;
   trigger?: { type: string; parameters: Record<string, unknown> };
   steps?: {
     action_type: string;
@@ -242,16 +247,28 @@ export async function deleteWorkflow(workflowId: string): Promise<void> {
   }
 }
 
+// Mirrors backend `RunStatus` (app/workflow/run.py). "retrying" is a real
+// intermediate state the engine writes between attempts; UI has to handle it
+// or we end up with unstyled badges when the scheduler actually retries.
+export type RunStatus =
+  | "pending"
+  | "running"
+  | "retrying"
+  | "success"
+  | "failed";
+
 export type WorkflowRun = {
   run_id: string;
   workflow_id: string;
-  status: "pending" | "running" | "success" | "failed";
+  status: RunStatus;
   trigger_type: string;
   triggered_at: string;
   started_at: string | null;
   finished_at: string | null;
   error: string | null;
   output: Record<string, unknown> | null;
+  retry_count?: number;
+  max_retries?: number;
 };
 
 export type WorkflowStepRun = {
@@ -300,6 +317,18 @@ export async function fetchStepRuns(
   const data = await parseBody(res);
   if (!res.ok) throw new Error(extractDetail(data) ?? res.statusText);
   return data as WorkflowStepRun[];
+}
+
+export async function fetchWorkflowRun(
+  workflowId: string,
+  runId: string,
+): Promise<WorkflowRun> {
+  const res = await apiFetch(
+    `${API_BASE}/workflows/${workflowId}/runs/${runId}`,
+  );
+  const data = await parseBody(res);
+  if (!res.ok) throw new Error(extractDetail(data) ?? res.statusText);
+  return data as WorkflowRun;
 }
 
 export async function registerUser(body: {

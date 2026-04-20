@@ -86,6 +86,9 @@ def _wf(**overrides) -> SimpleNamespace:
         "workflow_id": uuid4(),
         "owner_name": "owner",
         "enabled": True,
+        # Mirrors WorkflowDefinition.max_retries; the dispatcher reads
+        # this to propagate the retry budget into each emitted run.
+        "max_retries": 0,
         "trigger": CalendarEventTriggerConfig(
             calendar_id="primary", title_contains="", dedup_seconds=60
         ),

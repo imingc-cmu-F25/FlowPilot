@@ -242,7 +242,10 @@ class CreateWorkflowRunBody(BaseModel):
     """Manual / dev trigger — creates a pending run and optionally enqueues execution."""
 
     trigger_type: str = Field(default="manual", description="Stored on workflow_runs.trigger_type")
-    max_retries: int = Field(default=0, ge=0, le=10)
+    # None -> inherit the workflow's configured max_retries. Explicit 0/N
+    # from the body still takes precedence so ad-hoc runs can bypass or
+    # raise the budget for a single execution without editing the workflow.
+    max_retries: int | None = Field(default=None, ge=0, le=10)
     enqueue: bool = Field(
         default=True,
         description="If true, dispatch Celery task execution.execute_workflow_run",
@@ -258,11 +261,18 @@ def create_workflow_run(
 ):
     """Create a workflow run row (pending) and optionally enqueue the execution engine."""
     enforce_workflow_access(db, wf_id, current_user)
+    wf = WorkflowRepository(db).get(wf_id)
+    # enforce_workflow_access already rejects missing workflows, but mypy
+    # (and any future refactor that widens that helper) shouldn't have to
+    # re-prove that invariant here.
+    if wf is None:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+    effective_retries = body.max_retries if body.max_retries is not None else wf.max_retries
     run = WorkflowRun(
         workflow_id=wf_id,
         status=RunStatus.PENDING,
         trigger_type=body.trigger_type,
-        max_retries=body.max_retries,
+        max_retries=effective_retries,
     )
     created = WorkflowRunRepository(db).create(run)
     if body.enqueue:
@@ -304,6 +314,7 @@ async def ingest_webhook(
             workflow_id=wf.workflow_id,
             trigger_type="webhook",
             enqueue=True,
+            max_retries=wf.max_retries,
         )
         emitted += 1
 

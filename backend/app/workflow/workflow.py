@@ -33,6 +33,12 @@ class WorkflowDefinition(BaseModel):
     status: WorkflowStatus = WorkflowStatus.DRAFT
     trigger: TriggerConfig
     steps: list[ActionStep] = []
+    # Per-workflow retry budget. Every run emitted by any trigger (time,
+    # webhook, calendar_event, custom) inherits this as its starting
+    # `max_retries` unless the caller explicitly overrides it. Capped at 10
+    # both here and at the API layer so a bad policy can't produce a retry
+    # storm. 0 keeps the existing "fail on first error" behaviour.
+    max_retries: int = Field(default=0, ge=0, le=10)
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
@@ -56,6 +62,9 @@ class IWorkflowBuilder(ABC):
 
     @abstractmethod
     def set_enabled(self, enabled: bool) -> None: ...
+
+    @abstractmethod
+    def set_max_retries(self, max_retries: int) -> None: ...
 
     @abstractmethod
     def build(self) -> WorkflowDefinition: ...
@@ -111,6 +120,12 @@ class WorkflowDefinitionBuilder(IWorkflowBuilder):
     def set_enabled(self, enabled: bool) -> None:
         self._require_reset()
         self._draft["enabled"] = enabled
+
+    def set_max_retries(self, max_retries: int) -> None:
+        self._require_reset()
+        if max_retries < 0 or max_retries > 10:
+            raise ValueError("max_retries must be between 0 and 10")
+        self._draft["max_retries"] = max_retries
 
     def build(self) -> WorkflowDefinition:
         self._require_reset()

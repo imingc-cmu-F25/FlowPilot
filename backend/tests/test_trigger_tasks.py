@@ -27,24 +27,28 @@ class FakeWorkflowRepo:
             SimpleNamespace(
                 workflow_id=uuid4(),
                 enabled=True,
+                max_retries=0,
                 trigger=TimeTriggerConfig(trigger_at=now - timedelta(minutes=1)),
             ),
             # not due time trigger
             SimpleNamespace(
                 workflow_id=uuid4(),
                 enabled=True,
+                max_retries=0,
                 trigger=TimeTriggerConfig(trigger_at=now + timedelta(minutes=10)),
             ),
             # disabled workflow
             SimpleNamespace(
                 workflow_id=uuid4(),
                 enabled=False,
+                max_retries=0,
                 trigger=TimeTriggerConfig(trigger_at=now - timedelta(minutes=1)),
             ),
             # non-time trigger
             SimpleNamespace(
                 workflow_id=uuid4(),
                 enabled=True,
+                max_retries=0,
                 trigger=SimpleNamespace(type=TriggerType.WEBHOOK),
             ),
         ]
@@ -247,6 +251,7 @@ def test_dispatch_time_triggers_recurring_suppressed_by_recent_manual_run(monkey
                 SimpleNamespace(
                     workflow_id=self.wf_id,
                     enabled=True,
+                    max_retries=0,
                     trigger=TimeTriggerConfig(
                         trigger_at=now - timedelta(minutes=5),
                         recurrence=RecurrenceRule(
@@ -292,24 +297,28 @@ class FakeCustomWorkflowRepo:
             SimpleNamespace(
                 workflow_id=uuid4(),
                 enabled=True,
+                max_retries=0,
                 trigger=CustomTriggerConfig(condition="true"),
             ),
             # falsy condition → must not fire
             SimpleNamespace(
                 workflow_id=uuid4(),
                 enabled=True,
+                max_retries=0,
                 trigger=CustomTriggerConfig(condition="false"),
             ),
             # disabled
             SimpleNamespace(
                 workflow_id=uuid4(),
                 enabled=False,
+                max_retries=0,
                 trigger=CustomTriggerConfig(condition="true"),
             ),
             # non-custom trigger must be ignored
             SimpleNamespace(
                 workflow_id=uuid4(),
                 enabled=True,
+                max_retries=0,
                 trigger=SimpleNamespace(type=TriggerType.TIME),
             ),
         ]

@@ -102,6 +102,7 @@ def dispatch_time_triggers() -> int:
                 workflow_id=wf.workflow_id,
                 trigger_type="time",
                 enqueue=True,
+                max_retries=wf.max_retries,
             )
             emitted += 1
 
@@ -170,6 +171,7 @@ def dispatch_custom_triggers() -> int:
                 workflow_id=wf.workflow_id,
                 trigger_type="custom",
                 enqueue=True,
+                max_retries=wf.max_retries,
             )
             emitted += 1
 
@@ -255,6 +257,7 @@ def dispatch_calendar_event_triggers() -> int:
                 workflow_id=wf.workflow_id,
                 trigger_type="calendar_event",
                 enqueue=True,
+                max_retries=wf.max_retries,
             )
             emitted += 1
 

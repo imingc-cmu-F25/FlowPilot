@@ -13,6 +13,10 @@ interface WorkflowCardProps {
   onDelete: () => void;
   onRun?: () => void;
   running?: boolean;
+  // Enable/disable toggle. Controlled from the parent so the list view can
+  // optimistically flip the badge and roll back on error.
+  onToggleEnabled?: (next: boolean) => void;
+  togglingEnabled?: boolean;
   runs?: {
     run_id: string;
     status: string;
@@ -26,6 +30,7 @@ const STATUS_COLORS: Record<string, string> = {
   success: "bg-green-100 text-green-700",
   failed: "bg-red-100 text-red-700",
   running: "bg-blue-100 text-blue-700",
+  retrying: "bg-yellow-100 text-yellow-700",
   pending: "bg-yellow-100 text-yellow-700",
 };
 
@@ -55,8 +60,11 @@ export function WorkflowCard({
   onDelete,
   onRun,
   running,
+  onToggleEnabled,
+  togglingEnabled,
   runs,
 }: WorkflowCardProps) {
+  const isActive = status === "active";
   return (
     <div className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm transition-shadow hover:shadow-md">
       <div className="mb-4 flex items-start justify-between">
@@ -66,13 +74,35 @@ export function WorkflowCard({
           </div>
           <div>
             <h3 className="font-semibold text-gray-900">{name}</h3>
-            <span
-              className={`mt-1 inline-block rounded-full px-2 py-0.5 text-xs font-medium ${
-                status === "active" ? "bg-green-50 text-green-700" : "bg-gray-100 text-gray-600"
-              }`}
-            >
-              {status === "active" ? "Active" : "Disabled"}
-            </span>
+            <div className="mt-1 flex items-center gap-2">
+              <span
+                className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${
+                  isActive ? "bg-green-50 text-green-700" : "bg-gray-100 text-gray-600"
+                }`}
+              >
+                {isActive ? "Active" : "Disabled"}
+              </span>
+              {onToggleEnabled && (
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={isActive}
+                  aria-label={isActive ? "Disable workflow" : "Enable workflow"}
+                  disabled={togglingEnabled}
+                  onClick={() => onToggleEnabled(!isActive)}
+                  className={`relative inline-flex h-5 w-9 flex-none items-center rounded-full transition-colors disabled:opacity-60 ${
+                    isActive ? "bg-green-500" : "bg-gray-300"
+                  }`}
+                  title={isActive ? "Click to disable" : "Click to enable"}
+                >
+                  <span
+                    className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+                      isActive ? "translate-x-[18px]" : "translate-x-0.5"
+                    }`}
+                  />
+                </button>
+              )}
+            </div>
           </div>
         </div>
         <div className="relative">
@@ -126,21 +156,24 @@ export function WorkflowCard({
           </p>
           <ul className="space-y-1.5">
             {runs.slice(0, 5).map((r) => (
-              <li
-                key={r.run_id}
-                className="flex items-center justify-between text-xs"
-              >
-                <span
-                  className={`rounded-full px-2 py-0.5 font-medium ${
-                    STATUS_COLORS[r.status] ?? "bg-gray-100 text-gray-700"
-                  }`}
+              <li key={r.run_id}>
+                <Link
+                  to={`/dashboard/workflow/${id}/runs/${r.run_id}`}
+                  className="-mx-2 flex items-center justify-between gap-2 rounded px-2 py-1 text-xs transition-colors hover:bg-gray-50"
+                  title={r.error ?? "View execution log"}
                 >
-                  {r.status}
-                </span>
-                <span className="text-gray-500">{r.trigger_type}</span>
-                <span className="text-gray-400">
-                  {formatRelative(r.triggered_at)}
-                </span>
+                  <span
+                    className={`rounded-full px-2 py-0.5 font-medium ${
+                      STATUS_COLORS[r.status] ?? "bg-gray-100 text-gray-700"
+                    }`}
+                  >
+                    {r.status}
+                  </span>
+                  <span className="text-gray-500">{r.trigger_type}</span>
+                  <span className="text-gray-400">
+                    {formatRelative(r.triggered_at)}
+                  </span>
+                </Link>
               </li>
             ))}
           </ul>

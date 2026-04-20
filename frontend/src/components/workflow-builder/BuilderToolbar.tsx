@@ -4,9 +4,11 @@ import { Save, Sparkles, AlertTriangle, Trash2 } from "lucide-react";
 interface BuilderToolbarProps {
   workflowName: string;
   isEnabled: boolean;
+  maxRetries: number;
   showAIChat: boolean;
   onNameChange: (name: string) => void;
   onEnabledChange: (enabled: boolean) => void;
+  onMaxRetriesChange: (value: number) => void;
   onToggleAIChat: () => void;
   onSave: () => void;
   onDiscard: () => void;
@@ -16,9 +18,11 @@ interface BuilderToolbarProps {
 export function BuilderToolbar({
   workflowName,
   isEnabled,
+  maxRetries,
   showAIChat,
   onNameChange,
   onEnabledChange,
+  onMaxRetriesChange,
   onToggleAIChat,
   onSave,
   onDiscard,
@@ -38,6 +42,25 @@ export function BuilderToolbar({
             placeholder="Untitled workflow — click to name"
             className="min-w-0 flex-1 truncate rounded-md border border-transparent bg-transparent px-2 py-1 text-lg font-semibold text-gray-900 placeholder:text-gray-400 placeholder:italic hover:border-gray-200 hover:bg-gray-50 focus:border-blue-300 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-200 sm:text-xl"
           />
+          <label
+            className="flex shrink-0 items-center gap-2"
+            title="Step-level retry budget. The engine retries failed steps up to this many times before marking the run failed."
+          >
+            <span className="text-sm text-gray-600">Retries</span>
+            <input
+              type="number"
+              min={0}
+              max={10}
+              step={1}
+              value={maxRetries}
+              onChange={(e) => {
+                const n = Number.parseInt(e.target.value, 10);
+                if (Number.isNaN(n)) return;
+                onMaxRetriesChange(Math.min(10, Math.max(0, n)));
+              }}
+              className="w-14 rounded border border-gray-300 px-2 py-1 text-sm tabular-nums focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-200"
+            />
+          </label>
           <label className="flex shrink-0 items-center gap-2">
             <input
               type="checkbox"

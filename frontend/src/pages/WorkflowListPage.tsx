@@ -6,6 +6,7 @@ import {
   fetchWorkflowRuns,
   fetchWorkflows,
   triggerWorkflowRun,
+  updateWorkflow,
   type WorkflowDefinition,
   type WorkflowRun,
 } from "../lib/api";
@@ -39,6 +40,7 @@ export function WorkflowListPage() {
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const [runsById, setRunsById] = useState<Record<string, WorkflowRun[]>>({});
   const [runningIds, setRunningIds] = useState<Set<string>>(new Set());
+  const [togglingIds, setTogglingIds] = useState<Set<string>>(new Set());
 
   const loadRuns = useCallback(async (workflowId: string) => {
     try {
@@ -98,6 +100,35 @@ export function WorkflowListPage() {
         const next = new Set(prev);
         next.delete(workflowId);
         return next;
+      });
+    }
+  };
+
+  const handleToggleEnabled = async (workflowId: string, next: boolean) => {
+    // Optimistic update: flip the card badge immediately, revert on failure.
+    // The badge/status filter is driven off workflows[*].enabled so this
+    // single state mutation covers both visuals.
+    const previous = workflows;
+    setWorkflows((prev) =>
+      prev.map((w) =>
+        w.workflow_id === workflowId ? { ...w, enabled: next } : w,
+      ),
+    );
+    setTogglingIds((prev) => new Set(prev).add(workflowId));
+    try {
+      await updateWorkflow(workflowId, { enabled: next });
+    } catch (e) {
+      setWorkflows(previous);
+      setError(
+        e instanceof Error
+          ? e.message
+          : `Failed to ${next ? "enable" : "disable"} workflow`,
+      );
+    } finally {
+      setTogglingIds((prev) => {
+        const n = new Set(prev);
+        n.delete(workflowId);
+        return n;
       });
     }
   };
@@ -175,6 +206,10 @@ export function WorkflowListPage() {
               onDelete={() => handleDelete(wf.workflow_id)}
               onRun={() => handleRun(wf.workflow_id)}
               running={runningIds.has(wf.workflow_id)}
+              onToggleEnabled={(next) =>
+                handleToggleEnabled(wf.workflow_id, next)
+              }
+              togglingEnabled={togglingIds.has(wf.workflow_id)}
               runs={runsById[wf.workflow_id]}
             />
           ))}
