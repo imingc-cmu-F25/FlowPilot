@@ -453,3 +453,79 @@ export async function generateReport(payload: {
   if (!res.ok) throw new Error(extractDetail(data) ?? res.statusText);
   return data as MonthlyReport;
 }
+
+// Connectors — Google Calendar
+
+export type GoogleCalendarStatus = {
+  configured: boolean;
+  connected: boolean;
+  connection: {
+    provider: string;
+    scopes: string[];
+    expiry: string | null;
+    connected_at: string | null;
+    updated_at: string | null;
+  } | null;
+};
+
+export type CachedCalendarEvent = {
+  id: string;
+  calendar_id: string;
+  provider_event_id: string;
+  title: string;
+  description: string | null;
+  start: string | null;
+  end: string | null;
+  status: string | null;
+  html_link: string | null;
+  synced_at: string | null;
+};
+
+export async function fetchGoogleStatus(): Promise<GoogleCalendarStatus> {
+  const res = await apiFetch(`${API_BASE}/connectors/google/status`);
+  const data = await parseBody(res);
+  if (!res.ok) throw new Error(extractDetail(data) ?? res.statusText);
+  return data as GoogleCalendarStatus;
+}
+
+export async function beginGoogleAuthorize(): Promise<{
+  authorize_url: string;
+}> {
+  const res = await apiFetch(`${API_BASE}/connectors/google/authorize`);
+  const data = await parseBody(res);
+  if (!res.ok) throw new Error(extractDetail(data) ?? res.statusText);
+  return data as { authorize_url: string };
+}
+
+export async function disconnectGoogle(): Promise<void> {
+  const res = await apiFetch(`${API_BASE}/connectors/google`, {
+    method: "DELETE",
+  });
+  if (!res.ok) {
+    const data = await parseBody(res);
+    throw new Error(extractDetail(data) ?? res.statusText);
+  }
+}
+
+export async function syncGoogleCalendar(
+  calendarId = "primary",
+): Promise<{ synced: number; calendar_id: string }> {
+  const res = await apiFetch(
+    `${API_BASE}/connectors/google/sync?calendar_id=${encodeURIComponent(calendarId)}`,
+    { method: "POST" },
+  );
+  const data = await parseBody(res);
+  if (!res.ok) throw new Error(extractDetail(data) ?? res.statusText);
+  return data as { synced: number; calendar_id: string };
+}
+
+export async function fetchGoogleEvents(
+  limit = 20,
+): Promise<CachedCalendarEvent[]> {
+  const res = await apiFetch(
+    `${API_BASE}/connectors/google/events?limit=${limit}`,
+  );
+  const data = await parseBody(res);
+  if (!res.ok) throw new Error(extractDetail(data) ?? res.statusText);
+  return data as CachedCalendarEvent[];
+}

@@ -9,14 +9,20 @@ from uuid import UUID
 from app.action.action import ActionStep
 from app.action.base import BaseAction
 from app.action.calendarAction import CalendarActionStep, CalendarCreateEventAction
+from app.action.calendarListUpcomingAction import (
+    CalendarListUpcomingAction,
+    CalendarListUpcomingActionStep,
+)
 from app.action.httpRequestAction import HttpRequestAction, HttpRequestActionStep
 from app.action.sendEmailAction import SendEmailAction, SendEmailActionStep
 from app.core.config import settings
 from app.execution.contracts import (
+    EXECUTION_INPUT_OWNER_NAME,
     EXECUTION_INPUT_PREVIOUS_OUTPUT,
     EXECUTION_INPUT_RUN_ID,
     EXECUTION_INPUT_WORKFLOW_ID,
 )
+from app.execution.templating import render_template
 
 
 class ActionTimeoutError(RuntimeError):
@@ -30,6 +36,8 @@ def get_action_for_step(step: ActionStep) -> BaseAction:
         return SendEmailAction()
     if isinstance(step, CalendarActionStep):
         return CalendarCreateEventAction()
+    if isinstance(step, CalendarListUpcomingActionStep):
+        return CalendarListUpcomingAction()
     raise ValueError(
         f"Execution not implemented for action type: {getattr(step, 'action_type', step)}"
     )
@@ -41,29 +49,47 @@ def build_execution_inputs(
     run_id: UUID,
     workflow_id: UUID,
     previous_output: dict[str, Any] | None,
+    owner_name: str | None = None,
 ) -> dict[str, Any]:
-    """Stable keys for all actions; action-specific keys merged on top."""
+    """Stable keys for all actions; action-specific keys merged on top.
+
+    ``owner_name`` is populated for connector-backed actions (e.g. Google
+    Calendar) that need to resolve the end-user's stored OAuth tokens from
+    the engine-visible DB.
+    """
     base: dict[str, Any] = {
         EXECUTION_INPUT_RUN_ID: str(run_id),
         EXECUTION_INPUT_WORKFLOW_ID: str(workflow_id),
         EXECUTION_INPUT_PREVIOUS_OUTPUT: previous_output or {},
+        EXECUTION_INPUT_OWNER_NAME: owner_name,
     }
+
+    # Template context passed to every ``{{path}}`` substitution. Keeping
+    # the full ``base`` means users can also reach ``{{run_id}}``,
+    # ``{{workflow_id}}``, ``{{owner_name}}`` if they want — useful for
+    # debugging emails and idempotency tokens in downstream APIs.
+    ctx = base
+
+    def _r(value: str | None) -> str:
+        """Render templates and tolerate ``None`` as empty."""
+        return render_template(value or "", ctx)
+
     if isinstance(step, HttpRequestActionStep):
+        rendered_body = _r(step.body_template)
         # Only send a body for methods that actually carry one. GET/HEAD
         # technically can, but most servers reject it and httpx would still
         # set Content-Length: 0 when the template is empty — passing None
         # here keeps the wire format clean.
-        raw_body = step.body_template or ""
         body: str | None = (
-            raw_body
-            if raw_body and step.method in {"POST", "PUT", "PATCH", "DELETE"}
+            rendered_body
+            if rendered_body and step.method in {"POST", "PUT", "PATCH", "DELETE"}
             else None
         )
         base.update(
             {
                 "method": step.method,
-                "url": step.url_template,
-                "headers": dict(step.headers),
+                "url": _r(step.url_template),
+                "headers": {k: _r(v) for k, v in step.headers.items()},
                 "body": body,
             }
         )
@@ -71,9 +97,9 @@ def build_execution_inputs(
     if isinstance(step, SendEmailActionStep):
         base.update(
             {
-                "to": step.to_template,
-                "subject": step.subject_template,
-                "body": step.body_template,
+                "to": _r(step.to_template),
+                "subject": _r(step.subject_template),
+                "body": _r(step.body_template),
             }
         )
         return base
@@ -81,9 +107,22 @@ def build_execution_inputs(
         base.update(
             {
                 "calendar_id": step.calendar_id,
-                "title": step.title_template,
-                "start": step.start_mapping,
-                "end": step.end_mapping,
+                "title": _r(step.title_template),
+                "start": _r(step.start_mapping),
+                "end": _r(step.end_mapping),
+            }
+        )
+        return base
+    if isinstance(step, CalendarListUpcomingActionStep):
+        # No templating here — these are short identifiers / filters the
+        # user picks directly in the builder, not free-form strings that
+        # need to reference prior step output.
+        base.update(
+            {
+                "calendar_id": step.calendar_id,
+                "max_results": step.max_results,
+                "title_contains": step.title_contains,
+                "window_hours": step.window_hours,
             }
         )
         return base

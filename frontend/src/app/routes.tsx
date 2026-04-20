@@ -8,6 +8,7 @@ import { DashboardPage } from "../pages/DashboardPage";
 import { WorkflowListPage } from "../pages/WorkflowListPage";
 import { WorkflowBuilderPage } from "../pages/WorkflowBuilderPage";
 import { ReportsPage } from "../pages/ReportsPage";
+import { IntegrationsPage } from "../pages/IntegrationsPage";
 
 export const router = createBrowserRouter([
   { path: "/", Component: HomePage },
@@ -22,6 +23,7 @@ export const router = createBrowserRouter([
       { path: "workflows", Component: WorkflowListPage },
       { path: "workflow/builder/:id?", Component: WorkflowBuilderPage },
       { path: "reports", Component: ReportsPage },
+      { path: "integrations", Component: IntegrationsPage },
     ],
   },
 ]);

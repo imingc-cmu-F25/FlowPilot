@@ -64,10 +64,42 @@ class CustomTriggerConfig(BaseModel):
         if not self.condition.strip():
             raise ValueError("condition is required")
 
+
+class CalendarEventTriggerConfig(BaseModel):
+    """Fire when a new event lands in the user's cached Google Calendar.
+
+    Evaluation is cache-driven, not API-driven: the
+    ``connectors.sync_google_calendars`` beat task keeps
+    ``cached_calendar_events`` fresh every 10 minutes, and
+    ``trigger.dispatch_calendar_event_triggers`` (every minute) looks for
+    rows whose ``first_seen_at`` is newer than the last dispatch for this
+    workflow. Exactly one workflow run is emitted per tick no matter how
+    many events matched — the workflow's own steps (e.g.
+    ``CalendarListUpcoming``) are how it observes the event data.
+    """
+
+    type: Literal[TriggerType.CALENDAR_EVENT] = TriggerType.CALENDAR_EVENT
+    trigger_id: UUID = Field(default_factory=uuid4)
+    calendar_id: str = "primary"
+    title_contains: str = ""
+    # Debounce window: ignore first-seen events whose ``first_seen_at``
+    # falls inside this many seconds before the workflow was last
+    # dispatched. Keeps overlapping sync ticks from firing the same
+    # workflow twice for the same set of newly-added events.
+    dedup_seconds: int = 60
+
+    def validate_config(self) -> None:
+        if self.dedup_seconds < 0:
+            raise ValueError("dedup_seconds must be non-negative")
+
+
 # Add more trigger configs classes here
 
 # Discriminated union used as WorkflowDefinition.trigger
 TriggerConfig = Annotated[
-    TimeTriggerConfig | WebhookTriggerConfig | CustomTriggerConfig, # Add more trigger configs here
+    TimeTriggerConfig
+    | WebhookTriggerConfig
+    | CustomTriggerConfig
+    | CalendarEventTriggerConfig,
     Field(discriminator="type"),
 ]

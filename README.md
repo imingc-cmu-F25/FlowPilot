@@ -188,17 +188,27 @@ uv sync --all-groups
 uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-### Celery Worker & Beat
+### Celery Workers & Beat
 
 ```bash
 cd backend
-uv run celery -A app.worker.celery_app worker --loglevel=info
-# In a separate terminal (for scheduled time triggers):
+# Engine worker — runs workflow/reporting/trigger tasks on the default
+# "celery" queue:
+uv run celery -A app.worker.celery_app worker --loglevel=info --queues=celery
+
+# Action worker — subscribes only to the "actions" queue. Required when
+# ACTION_WORKER_ENABLED=true; otherwise optional for local dev.
+uv run celery -A app.worker.celery_app worker --loglevel=info --queues=actions -n action@%h
+
+# In a separate terminal (for scheduled time triggers + calendar sync):
 uv run celery -A app.worker.celery_app beat --loglevel=info
 ```
 
-The worker consumes jobs from Redis; Beat emits a heartbeat every 60 seconds
-that scans active time-based triggers and enqueues runs for any that are due.
+Or with the Make targets: `make worker-dev`, `make action-worker-dev`.
+
+The engine worker consumes workflow jobs from Redis; Beat emits a heartbeat
+every 60 seconds for time triggers and every 10 minutes for Google Calendar
+sync.
 
 ## End-to-End Execution Pipeline
 
@@ -242,25 +252,45 @@ that scans active time-based triggers and enqueues runs for any that are due.
 - User registration, login with bearer tokens, email management
 - Workflow CRUD (create/list/get/update/delete)
 - Workflow validation and activation
-- Triggers: time-based (one-off + recurring) and webhook
-- Actions: `http_request`, `send_email`, `calendar_create_event`
+- Triggers: time-based (one-off + recurring), webhook, custom, and
+  `calendar_event` (fires when a new event lands in the user's cached
+  Google Calendar)
+- Actions: `http_request`, `send_email`, `calendar_create_event`,
+  `calendar_list_upcoming` (reads upcoming events from the local cache,
+  no runtime Google call)
 - End-to-end execution pipeline: manual runs, time-driven runs via Celery
   Beat, and webhook-driven runs via `/hooks/…`
 - Per-run status (`pending/running/success/failed`) and per-step logs
-- Monthly reporting endpoint with optional AI summary hook
-- Frontend: auth flow, workflow list with Run button + run history, workflow
-  builder with drag-and-drop palette
+- Monthly reporting endpoint with AI summary (OpenAI, with a fake fallback)
+- AI workflow suggestions with LLM function calling
+- **Google Calendar connector** (`app/connectors/google_calendar.py`):
+  OAuth 2.0 flow under `/api/connectors/google/*`, real event creation
+  when the workflow owner has linked their Google account, periodic sync
+  of upcoming events into `cached_calendar_events` (Celery Beat task
+  `connectors.sync_google_calendars`, every 10 minutes), and a mock
+  fallback when the server is unconfigured or the user is not connected.
+  Connect / disconnect / sync UI lives on its own **Dashboard →
+  Integrations** page; cached events are filtered to upcoming-only by
+  default so the list always answers "what's next" rather than showing
+  last week's meetings. Powers both the `calendar_event` trigger (fire a
+  workflow when a new event is detected) and the `calendar_list_upcoming`
+  action (read the agenda inside a workflow without touching Google at
+  runtime).
+- **Strong ActionService process isolation** (`ACTION_WORKER_ENABLED=true`):
+  the engine worker dispatches each step to a dedicated `actions` Celery
+  queue served by the separate `action-worker` container. A crashing or
+  OOM-ing action only takes that isolated worker down; the engine keeps
+  processing other runs. Disabled in unit tests + single-process dev.
+- Frontend: auth flow, workflow list with Run button + run history,
+  workflow builder with drag-and-drop palette and AI chat.
 
 ## Known Limitations / Not Yet Implemented
 
-- OAuth / Google Calendar connector: the calendar action currently returns a
-  mock event; wiring into Google APIs lives behind the same
-  `CalendarCreateEventAction` interface.
-- AI workflow suggestions and AI narrative summaries: the frontend chat panel
-  is still mocked; the reporting service exposes a `_ai_summary` seam but does
-  not yet call a real LLM.
 - Fine-grained authorization: endpoints scope to the authenticated user but do
   not implement roles or shared workspaces.
 - Alembic migrations: the DB applies `create_all` plus a few bespoke
   migrations in `app.db.session`. A proper Alembic setup is the next hardening
   step.
+- Token encryption at rest: Google OAuth tokens are stored as plain text in
+  `user_connections`. Production hardening should wrap them in Fernet with a
+  KMS-managed key.

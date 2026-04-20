@@ -10,6 +10,7 @@ class ActionType(StrEnum):
     HTTP_REQUEST = "http_request"
     SEND_EMAIL = "send_email"
     CALENDAR_CREATE_EVENT = "calendar_create_event"
+    CALENDAR_LIST_UPCOMING = "calendar_list_upcoming"
 
 
 class ActionSchema(BaseModel):

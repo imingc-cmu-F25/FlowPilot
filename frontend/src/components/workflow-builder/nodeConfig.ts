@@ -27,6 +27,13 @@ export interface CustomTriggerConfig {
   description: string;
 }
 
+export interface CalendarEventTriggerConfig {
+  name: string;
+  calendar_id: string;
+  title_contains: string;
+  dedup_seconds: number;
+}
+
 export interface HttpRequestActionConfig {
   name: string;
   method: string;
@@ -52,13 +59,23 @@ export interface CalendarActionConfig {
   end_mapping: string;
 }
 
+export interface CalendarListUpcomingActionConfig {
+  name: string;
+  calendar_id: string;
+  max_results: number;
+  title_contains: string;
+  window_hours: number;   // 0 = no cap; 24 = today only; 168 = this week
+}
+
 export type NodeConfig =
   | TimeTriggerConfig
   | WebhookTriggerConfig
   | CustomTriggerConfig
+  | CalendarEventTriggerConfig
   | HttpRequestActionConfig
   | SendEmailActionConfig
-  | CalendarActionConfig;
+  | CalendarActionConfig
+  | CalendarListUpcomingActionConfig;
 
 // ── default factories ────────────────────────────────────────────────────────
 
@@ -101,6 +118,15 @@ export function defaultCustomTrigger(): CustomTriggerConfig {
   return { name: "Custom Trigger", condition: "true", source: "event_payload", description: "" };
 }
 
+export function defaultCalendarEventTrigger(): CalendarEventTriggerConfig {
+  return {
+    name: "New Calendar Event",
+    calendar_id: "primary",
+    title_contains: "",
+    dedup_seconds: 60,
+  };
+}
+
 export function defaultHttpRequestAction(): HttpRequestActionConfig {
   // Pre-fill a Slack / Discord / ntfy-compatible JSON payload so a demo user
   // only has to paste their webhook URL and hit Save. Method stays GET so
@@ -130,13 +156,27 @@ export function defaultCalendarAction(): CalendarActionConfig {
   return { name: "Calendar Event", calendar_id: "", title_template: "", start_mapping: "", end_mapping: "" };
 }
 
+export function defaultCalendarListUpcomingAction(): CalendarListUpcomingActionConfig {
+  return {
+    name: "List Upcoming Events",
+    calendar_id: "primary",
+    max_results: 10,
+    title_contains: "",
+    window_hours: 24, // default "today + rollover" — matches the most
+                      // common daily-digest use case without surprising
+                      // users with events from next month.
+  };
+}
+
 export function defaultConfigFor(type: "trigger" | "action", category: string): NodeConfig {
   if (type === "trigger") {
     if (category === "webhook") return defaultWebhookTrigger();
     if (category === "custom") return defaultCustomTrigger();
+    if (category === "calendar_event") return defaultCalendarEventTrigger();
     return defaultTimeTrigger();
   }
   if (category === "email") return defaultSendEmailAction();
   if (category === "calendar") return defaultCalendarAction();
+  if (category === "calendar_list") return defaultCalendarListUpcomingAction();
   return defaultHttpRequestAction();
 }

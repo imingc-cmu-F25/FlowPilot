@@ -1,5 +1,6 @@
 from app.action.action import BaseAction
 from app.action.calendarAction import CalendarCreateEventAction
+from app.action.calendarListUpcomingAction import CalendarListUpcomingAction
 from app.action.httpRequestAction import HttpRequestAction
 from app.action.sendEmailAction import SendEmailAction
 
@@ -26,3 +27,4 @@ class ActionRegistry:
 ActionRegistry.register(SendEmailAction)
 ActionRegistry.register(HttpRequestAction)
 ActionRegistry.register(CalendarCreateEventAction)
+ActionRegistry.register(CalendarListUpcomingAction)

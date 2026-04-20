@@ -137,6 +137,28 @@ class WorkflowRunRepository:
         )
         return [self._to_domain(r) for r in rows]
 
+    def latest_triggered_at_for_type(
+        self,
+        workflow_id: UUID,
+        trigger_type: str,
+    ) -> datetime | None:
+        """Return the most recent ``triggered_at`` for a given trigger type,
+        or None if the workflow has never been triggered that way.
+
+        Used by the calendar-event dispatcher to decide which cached
+        events are "new since last fire" for a given workflow.
+        """
+        row = (
+            self._db.query(WorkflowRunORM.triggered_at)
+            .filter(
+                WorkflowRunORM.workflow_id == workflow_id,
+                WorkflowRunORM.trigger_type == trigger_type,
+            )
+            .order_by(WorkflowRunORM.triggered_at.desc())
+            .first()
+        )
+        return row[0] if row else None
+
     def exists_with_trigger_type(
         self,
         workflow_id: UUID,

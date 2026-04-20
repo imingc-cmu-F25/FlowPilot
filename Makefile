@@ -3,7 +3,7 @@ SHELL := /bin/bash
 COMPOSE_DEV  := docker compose -f infra/docker-compose.yml
 COMPOSE_PROD := docker compose --env-file .env -f infra/docker-compose.prod.yml
 
-.PHONY: up down logs frontend-dev backend-dev worker-dev \
+.PHONY: up down logs frontend-dev backend-dev worker-dev action-worker-dev \
         ci ci-frontend ci-backend \
         prod-up prod-down prod-logs prod-restart prod-rebuild
 
@@ -40,7 +40,10 @@ backend-dev:
 	cd backend && uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
 worker-dev:
-	cd backend && uv run celery -A app.worker.celery_app worker --loglevel=info
+	cd backend && uv run celery -A app.worker.celery_app worker --loglevel=info --queues=celery
+
+action-worker-dev:
+	cd backend && uv run celery -A app.worker.celery_app worker --loglevel=info --queues=actions -n action@%h
 
 ci-frontend:
 	cd frontend && npm ci && npm run lint && npm run build

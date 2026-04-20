@@ -130,9 +130,52 @@ export function SendEmailActionForm({ config, onChange }: Props) {
         )}
       </div>
 
-      <p className="text-xs text-gray-400">
-        Use <code className="rounded bg-gray-100 px-1">{"{{variable}}"}</code> to reference prior step outputs.
-      </p>
+      <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 text-xs text-gray-600">
+        <p className="mb-1 font-medium text-gray-700">Template variables</p>
+        <p className="mb-2">
+          Use{" "}
+          <code className="rounded bg-white px-1 font-mono">
+            {"{{path.to.value}}"}
+          </code>{" "}
+          to inject values from the previous step. Most useful:
+        </p>
+        <dl className="space-y-2">
+          <div>
+            <dt>
+              <code className="inline-block max-w-full break-all rounded bg-white px-1 py-0.5 font-mono">
+                {"{{previous_output.agenda_text}}"}
+              </code>
+            </dt>
+            <dd className="mt-0.5 text-gray-500">
+              After a "List Upcoming Events" step — a ready-to-paste bullet
+              list of meetings.
+            </dd>
+          </div>
+          <div>
+            <dt>
+              <code className="inline-block max-w-full break-all rounded bg-white px-1 py-0.5 font-mono">
+                {"{{previous_output.count}}"}
+              </code>
+            </dt>
+            <dd className="mt-0.5 text-gray-500">
+              Integer count of items from the previous step.
+            </dd>
+          </div>
+          <div>
+            <dt>
+              <code className="inline-block max-w-full break-all rounded bg-white px-1 py-0.5 font-mono">
+                {"{{previous_output.status_code}}"}
+              </code>
+            </dt>
+            <dd className="mt-0.5 text-gray-500">
+              After an HTTP Request step.
+            </dd>
+          </div>
+        </dl>
+        <p className="mt-2 text-[11px] text-gray-500">
+          Missing paths render as empty strings — no error at runtime.
+        </p>
+      </div>
     </div>
   );
 }

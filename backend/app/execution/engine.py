@@ -7,12 +7,13 @@ from uuid import UUID
 
 from sqlalchemy.orm import Session
 
+from app.action.tasks import dispatch_action_step
 from app.execution.context import ExecutionContext
 from app.execution.persistence import RunStatePersister
 from app.execution.states import StepRun, StepRunStatus
 from app.execution.states.base import StepFailureDecision
 from app.execution.step_run_repo import WorkflowStepRunRepository
-from app.execution.step_runner import build_execution_inputs, run_action_sync
+from app.execution.step_runner import build_execution_inputs
 from app.workflow.repo import WorkflowRepository
 from app.workflow.run import RunStatus
 from app.workflow.run_repo import WorkflowRunRepository
@@ -73,8 +74,14 @@ class ExecutionEngine:
                         run_id=run.run_id,
                         workflow_id=run.workflow_id,
                         previous_output=previous_output,
+                        owner_name=wf.owner_name,
                     )
-                    step_out = run_action_sync(step, inputs)
+                    # Dispatch via the ActionService indirection: in-process
+                    # when action_worker_enabled is false (dev / tests), or
+                    # routed to the isolated "actions" Celery queue when
+                    # true. Either way, a hang/crash in the action does not
+                    # escape this try-block.
+                    step_out = dispatch_action_step(step, inputs)
                 except Exception as exc:  # noqa: BLE001 — surface as run failure / retry
                     step_run_repo.create(StepRun(
                         run_id=run_id,

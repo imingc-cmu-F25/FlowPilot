@@ -43,12 +43,33 @@ services:
     restart: unless-stopped
     env_file:
       - ../.env
+    environment:
+      # Dispatch action execution to the isolated action-worker so a
+      # hung / crashing action can't take this engine worker down.
+      ACTION_WORKER_ENABLED: "true"
     depends_on:
       - postgres
       - redis
     volumes:
       - ../backend:/app
-    command: celery -A app.worker.celery_app worker --loglevel=info
+    command: celery -A app.worker.celery_app worker --loglevel=info --queues=celery
+
+  action-worker:
+    # Standalone ActionService (Haiku "fault isolation" decision). Runs in
+    # a separate OS process subscribed only to the "actions" queue; if an
+    # individual action crashes, only this container is affected.
+    build:
+      context: ../backend
+    container_name: flowpilot-action-worker
+    restart: unless-stopped
+    env_file:
+      - ../.env
+    depends_on:
+      - postgres
+      - redis
+    volumes:
+      - ../backend:/app
+    command: celery -A app.worker.celery_app worker --loglevel=info --queues=actions -n action@%h
 
   beat:
     build:

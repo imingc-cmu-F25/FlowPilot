@@ -67,10 +67,37 @@ services:
     restart: always
     env_file:
       - ../.env
+    environment:
+      # Route action execution out to the standalone action-worker for
+      # strong fault isolation per the Architecture Haiku.
+      ACTION_WORKER_ENABLED: "true"
     depends_on:
       - postgres
       - redis
-    command: celery -A app.worker.celery_app worker --loglevel=info --concurrency=2
+    command: >
+      celery -A app.worker.celery_app worker --loglevel=info
+      --concurrency=2 --queues=celery
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  action-worker:
+    # Standalone ActionService — isolates per-step failures from the
+    # engine worker. Subscribes only to the "actions" queue.
+    build:
+      context: ../backend
+    container_name: flowpilot-action-worker
+    restart: always
+    env_file:
+      - ../.env
+    depends_on:
+      - postgres
+      - redis
+    command: >
+      celery -A app.worker.celery_app worker --loglevel=info
+      --concurrency=2 --queues=actions -n action@%h
     logging:
       driver: json-file
       options:

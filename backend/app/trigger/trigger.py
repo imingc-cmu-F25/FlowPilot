@@ -8,6 +8,7 @@ class TriggerType(StrEnum):
     TIME = "time"
     WEBHOOK = "webhook"
     CUSTOM = "custom"
+    CALENDAR_EVENT = "calendar_event"
     # Add more trigger types here
 
 # API input

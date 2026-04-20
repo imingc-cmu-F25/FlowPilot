@@ -4,6 +4,7 @@ from datetime import datetime
 from app.trigger.recurrence import RecurrenceRule
 from app.trigger.trigger import TriggerSpec, TriggerType
 from app.trigger.triggerConfig import (
+    CalendarEventTriggerConfig,
     CustomTriggerConfig,
     TimeTriggerConfig,
     TriggerConfig,
@@ -15,7 +16,12 @@ class TriggerFactory(ABC):
     @abstractmethod
     def create(
         self, spec: TriggerSpec
-    ) -> TimeTriggerConfig | WebhookTriggerConfig | CustomTriggerConfig:
+    ) -> (
+        TimeTriggerConfig
+        | WebhookTriggerConfig
+        | CustomTriggerConfig
+        | CalendarEventTriggerConfig
+    ):
         ...
 
 class TimeTriggerFactory(TriggerFactory):
@@ -65,11 +71,24 @@ class CustomTriggerFactory(TriggerFactory):
         config.validate_config()
         return config
 
+
+class CalendarEventTriggerFactory(TriggerFactory):
+    def create(self, spec: TriggerSpec) -> CalendarEventTriggerConfig:
+        config = CalendarEventTriggerConfig(
+            calendar_id=spec.parameters.get("calendar_id", "primary") or "primary",
+            title_contains=spec.parameters.get("title_contains", "") or "",
+            dedup_seconds=int(spec.parameters.get("dedup_seconds", 60)),
+        )
+        config.validate_config()
+        return config
+
+
 # Keep all trigger constructors in one registry for easy extension.
 TRIGGER_FACTORIES: dict[TriggerType, TriggerFactory] = {
     TriggerType.TIME: TimeTriggerFactory(),
     TriggerType.WEBHOOK: WebhookTriggerFactory(),
     TriggerType.CUSTOM: CustomTriggerFactory(),
+    TriggerType.CALENDAR_EVENT: CalendarEventTriggerFactory(),
     # Add more trigger factories here
 }
 
