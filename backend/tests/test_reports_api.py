@@ -85,3 +85,18 @@ def test_generate_report_invalid_period_returns_422():
         ),
     )
     assert response.status_code == 422
+
+
+def test_delete_report_removes_row():
+    created = client.post("/api/reports/generate", json=_generate_body()).json()
+    rid = created["report_id"]
+    assert client.get(f"/api/reports/{rid}").status_code == 200
+    resp = client.delete(f"/api/reports/{rid}")
+    assert resp.status_code == 204
+    assert client.get(f"/api/reports/{rid}").status_code == 404
+
+
+def test_delete_unknown_report_returns_404():
+    import uuid
+    resp = client.delete(f"/api/reports/{uuid.uuid4()}")
+    assert resp.status_code == 404

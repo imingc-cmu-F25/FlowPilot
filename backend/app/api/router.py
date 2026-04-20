@@ -358,6 +358,23 @@ def get_report(
     return report
 
 
+@api_router.delete("/reports/{report_id}", status_code=204, tags=["reports"])
+def delete_report(
+    report_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: str | None = Depends(get_current_user_optional),
+):
+    repo = ReportRepository(db)
+    report = repo.get(report_id)
+    if report is None:
+        raise HTTPException(404, detail="Report not found")
+    if current_user is not None and report.owner_name != current_user:
+        raise HTTPException(404, detail="Report not found")
+    repo.delete(report_id)
+    db.commit()
+    return None
+
+
 @api_router.post("/reports/generate", status_code=201, tags=["reports"])
 def generate_report(
     body: GenerateReportBody,
