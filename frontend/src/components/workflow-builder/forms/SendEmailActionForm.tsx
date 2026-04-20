@@ -1,4 +1,5 @@
 import type { SendEmailActionConfig } from "../nodeConfig";
+import { getStoredUserEmails } from "../../../auth/storage";
 import {
   Chip,
   HintDL,
@@ -7,6 +8,8 @@ import {
   HintItem,
   HintPanel,
 } from "./hintPanel";
+
+type EmailAddress = { address: string; alias: string };
 
 const SUBJECT_PREFIX = "[FlowPilot] ";
 const FOOTER = `\n\n---\nThis email was automatically sent by FlowPilot.\nTo manage your workflows, visit your FlowPilot dashboard.`;
@@ -17,6 +20,8 @@ interface Props {
 }
 
 export function SendEmailActionForm({ config, onChange }: Props) {
+  const userEmails: EmailAddress[] = getStoredUserEmails();
+
   function set<K extends keyof SendEmailActionConfig>(key: K, value: SendEmailActionConfig[K]) {
     onChange({ ...config, [key]: value });
   }
@@ -68,9 +73,27 @@ export function SendEmailActionForm({ config, onChange }: Props) {
 
       {/* To */}
       <div>
-        <label className="mb-1 block text-sm font-medium text-gray-700">
-          To <span className="text-red-500">*</span>
-        </label>
+        <div className="mb-1 flex items-center justify-between">
+          <label className="text-sm font-medium text-gray-700">
+            To <span className="text-red-500">*</span>
+          </label>
+          {userEmails.length > 0 && (
+            <select
+              value=""
+              onChange={(e) => {
+                if (e.target.value) set("to_template", e.target.value);
+              }}
+              className="rounded border border-gray-300 px-2 py-0.5 text-xs text-gray-600 focus:border-blue-500 focus:outline-none"
+            >
+              <option value="">My emails…</option>
+              {userEmails.map((e) => (
+                <option key={e.address} value={e.address}>
+                  {e.alias ? `${e.alias} <${e.address}>` : e.address}
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
         <input
           type="text"
           value={config.to_template}

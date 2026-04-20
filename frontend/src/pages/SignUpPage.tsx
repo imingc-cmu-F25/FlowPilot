@@ -1,7 +1,7 @@
 import type { FormEvent } from "react";
 import { useState } from "react";
 import { Link, useNavigate } from "react-router";
-import { setStoredUsername } from "../auth/storage";
+import { setStoredUsername, setStoredUserEmails } from "../auth/storage";
 import { registerUser } from "../lib/api";
 import { AuthCard } from "../components/AuthCard";
 import { FormField } from "../components/FormField";
@@ -24,12 +24,13 @@ export function SignUpPage() {
     }
     setSubmitting(true);
     try {
-      await registerUser({
+      const result = await registerUser({
         name: name.trim(),
         password,
         email: email.trim() || null,
       });
       setStoredUsername(name.trim());
+      if (result.user?.emails) setStoredUserEmails(result.user.emails);
       navigate("/profile");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Registration failed");

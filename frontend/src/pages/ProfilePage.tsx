@@ -1,7 +1,7 @@
 import { type FormEvent, useCallback, useEffect, useState } from "react";
 import { Link } from "react-router";
 import { HomeTopBar } from "../components/HomeTopBar";
-import { getStoredUsername } from "../auth/storage";
+import { getStoredUsername, setStoredUserEmails } from "../auth/storage";
 import {
   appendUserEmail,
   deleteUserEmail,
@@ -33,7 +33,9 @@ export function ProfilePage() {
     try {
       const users = await fetchAllUsers();
       const me = users.find((u) => u.name === username);
-      setEmails(me?.emails ?? []);
+      const fresh = me?.emails ?? [];
+      setEmails(fresh);
+      setStoredUserEmails(fresh);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load emails");
       setEmails([]);
@@ -57,6 +59,7 @@ export function ProfilePage() {
     try {
       const updated = await deleteUserEmail(username, address);
       setEmails(updated.emails);
+      setStoredUserEmails(updated.emails);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not delete email");
     } finally {
@@ -95,6 +98,7 @@ export function ProfilePage() {
         editAlias.trim(),
       );
       setEmails(updated.emails);
+      setStoredUserEmails(updated.emails);
       cancelEdit();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not update email");
@@ -117,6 +121,7 @@ export function ProfilePage() {
     try {
       const updated = await appendUserEmail(username, address, alias);
       setEmails(updated.emails);
+      setStoredUserEmails(updated.emails);
       setNewAddress("");
       setNewAlias("");
     } catch (err) {

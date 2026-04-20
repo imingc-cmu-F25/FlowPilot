@@ -1,7 +1,7 @@
 import type { FormEvent } from "react";
 import { useState } from "react";
 import { Link, useNavigate } from "react-router";
-import { setStoredToken, setStoredUsername } from "../auth/storage";
+import { setStoredToken, setStoredUsername, setStoredUserEmails } from "../auth/storage";
 import { loginUser } from "../lib/api";
 import { AuthCard } from "../components/AuthCard";
 import { FormField } from "../components/FormField";
@@ -22,6 +22,7 @@ export function LoginPage() {
       const token = result.auth?.token ?? result.token;
       if (token) setStoredToken(token);
       setStoredUsername(name.trim());
+      if (result.auth?.user?.emails) setStoredUserEmails(result.auth.user.emails);
       navigate("/profile");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Sign in failed");

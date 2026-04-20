@@ -8,6 +8,12 @@ from app.user.user import AuthResponse, UserPublic
 from sqlalchemy.orm import Session
 
 
+def _parse_email_entry(entry: dict | str) -> "EmailAddress":
+    if isinstance(entry, str):
+        return EmailAddress(address=entry, alias="")
+    return EmailAddress(address=entry["address"], alias=entry.get("alias", ""))
+
+
 def _hash_password(password: str) -> str:
     return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("ascii")
 
@@ -32,10 +38,7 @@ class UserService:
         if email:
             initial_emails = [{"address": email, "alias": ""}]
         user_orm = self.repo.create(name, password_hash, initial_emails)
-        emails = [
-            EmailAddress(address=e["address"], alias=e.get("alias", ""))
-            for e in (user_orm.emails or [])
-        ]
+        emails = [_parse_email_entry(e) for e in (user_orm.emails or [])]
         return AuthResponse(
             ok=True,
             message="Registration successful",
@@ -55,10 +58,7 @@ class UserService:
         token = secrets.token_urlsafe(32)
         self.repo.create_session(token, name)
 
-        emails = [
-            EmailAddress(address=e["address"], alias=e.get("alias", ""))
-            for e in (user.emails or [])
-        ]
+        emails = [_parse_email_entry(e) for e in (user.emails or [])]
         return AuthResponse(
             ok=True,
             message="Login successful",
@@ -69,10 +69,8 @@ class UserService:
     def get_all_users(self) -> list[UserPublic]:
         rows = self.repo.get_all_users()
         ret = []
-        for row in rows: 
-            emails = []
-            for email in row.emails or []: 
-                emails.append(EmailAddress(address=email["address"], alias=email["alias"]))
+        for row in rows:
+            emails = [_parse_email_entry(e) for e in (row.emails or [])]
             ret.append(UserPublic(name=row.name, emails=emails))
         return ret
 
@@ -80,13 +78,15 @@ class UserService:
         user = self.repo.get_by_name(name)
         if not user:
             raise NotFoundError("User not found")
-        updated_list = [e for e in (user.emails or []) if e["address"] != address]
+        updated_list = [
+            e for e in (user.emails or [])
+            if (e if isinstance(e, str) else e["address"]) != address
+        ]
         updated = self.repo.update_emails(name, updated_list)
         if not updated:
             raise NotFoundError("User not found")
         emails = [
-            EmailAddress(address=e["address"], alias=e.get("alias", ""))
-            for e in (updated.emails or [])
+            _parse_email_entry(e) for e in (updated.emails or [])
         ]
         return UserPublic(name=name, emails=emails)
 
@@ -97,16 +97,15 @@ class UserService:
         current = list(user.emails or [])
         updated_list = [
             {"address": new_email.address, "alias": new_email.alias}
-            if e["address"] == old_address
-            else e
+            if (e if isinstance(e, str) else e["address"]) == old_address
+            else ({"address": e, "alias": ""} if isinstance(e, str) else e)
             for e in current
         ]
         updated = self.repo.update_emails(name, updated_list)
         if not updated:
             raise NotFoundError("User not found")
         emails = [
-            EmailAddress(address=e["address"], alias=e.get("alias", ""))
-            for e in (updated.emails or [])
+            _parse_email_entry(e) for e in (updated.emails or [])
         ]
         return UserPublic(name=name, emails=emails)
 
@@ -122,7 +121,6 @@ class UserService:
         if not updated:
             raise NotFoundError("User not found")
         emails = [
-            EmailAddress(address=e["address"], alias=e.get("alias", ""))
-            for e in (updated.emails or [])
+            _parse_email_entry(e) for e in (updated.emails or [])
         ]
         return UserPublic(name=name, emails=emails)
