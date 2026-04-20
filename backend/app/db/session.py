@@ -117,6 +117,29 @@ def _ensure_workflow_runs_retry_columns() -> None:
                 )
 
 
+def _ensure_workflow_runs_trigger_context_column() -> None:
+    """Add workflow_runs.trigger_context (nullable JSON) if missing.
+
+    The webhook ingest path stashes the incoming body / headers / query
+    here so the execution engine can seed the first step's
+    ``previous_output`` with it. Older rows pre-date the column and
+    stay NULL, which simply means "no captured payload" — backwards
+    compatible with every non-webhook trigger.
+    """
+    engine = get_engine()
+    insp = inspect(engine)
+    if not insp.has_table("workflow_runs"):
+        return
+    cols = {c["name"] for c in insp.get_columns("workflow_runs")}
+    if "trigger_context" in cols:
+        return
+    # JSON is spelled identically by both dialects we support; pg stores
+    # it as JSONB via SQLAlchemy's JSON type, sqlite stores it as TEXT.
+    ddl = "ALTER TABLE workflow_runs ADD COLUMN trigger_context JSON"
+    with engine.begin() as conn:
+        conn.execute(text(ddl))
+
+
 def _ensure_user_sessions_pkce_column() -> None:
     """Add user_sessions.oauth_code_verifier (nullable) if missing.
 
@@ -208,6 +231,7 @@ def init_db() -> None:
     _ensure_users_emails_column()
     _migrate_workflow_owner_column()
     _ensure_workflow_runs_retry_columns()
+    _ensure_workflow_runs_trigger_context_column()
     _ensure_workflows_max_retries_column()
     _ensure_user_sessions_pkce_column()
     _ensure_cached_events_first_seen_column()

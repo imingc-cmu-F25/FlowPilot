@@ -61,12 +61,15 @@ export function HttpRequestActionForm({ config, onChange }: Props) {
               </option>
             ))}
           </select>
+          {/* min-w-0 is required on a flex child that contains text so the
+              input can shrink below its intrinsic content width — without
+              it, long URLs push the row past the drawer edge. */}
           <input
             type="url"
             value={config.url_template}
             onChange={(e) => set("url_template", e.target.value)}
             placeholder="https://api.example.com/{{path}}"
-            className="flex-1 rounded-lg border border-gray-300 px-3 py-2 font-mono text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            className="min-w-0 flex-1 rounded-lg border border-gray-300 px-3 py-2 font-mono text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
           />
         </div>
         <p className="mt-1 text-xs text-gray-500">
@@ -92,25 +95,31 @@ export function HttpRequestActionForm({ config, onChange }: Props) {
             <p className="text-xs text-gray-400">No headers added.</p>
           )}
           {config.headers.map((h, i) => (
-            <div key={i} className="flex gap-2">
+            // `min-w-0` on each input is what actually lets the row fit
+            // inside the narrow side drawer — Flexbox otherwise keeps
+            // inputs at their intrinsic width and pushes the trash button
+            // off-screen. `shrink-0` on the button keeps it from being
+            // the thing that collapses.
+            <div key={i} className="flex items-center gap-2">
               <input
                 type="text"
                 value={h.key}
                 onChange={(e) => updateHeader(i, "key", e.target.value)}
                 placeholder="Header name"
-                className="flex-1 rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                className="min-w-0 flex-1 rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
               />
               <input
                 type="text"
                 value={h.value}
                 onChange={(e) => updateHeader(i, "value", e.target.value)}
                 placeholder="Value"
-                className="flex-1 rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                className="min-w-0 flex-1 rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
               />
               <button
                 type="button"
                 onClick={() => removeHeader(i)}
-                className="rounded p-1.5 text-gray-400 hover:bg-gray-100 hover:text-red-500"
+                className="shrink-0 rounded p-1.5 text-gray-400 hover:bg-gray-100 hover:text-red-500"
+                aria-label="Remove header"
               >
                 <Trash2 className="h-4 w-4" />
               </button>

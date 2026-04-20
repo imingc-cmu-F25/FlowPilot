@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
@@ -20,6 +21,7 @@ from app.execution.contracts import (
     EXECUTION_INPUT_OWNER_NAME,
     EXECUTION_INPUT_PREVIOUS_OUTPUT,
     EXECUTION_INPUT_RUN_ID,
+    EXECUTION_INPUT_TRIGGER,
     EXECUTION_INPUT_WORKFLOW_ID,
 )
 from app.execution.templating import render_template
@@ -50,18 +52,37 @@ def build_execution_inputs(
     workflow_id: UUID,
     previous_output: dict[str, Any] | None,
     owner_name: str | None = None,
+    trigger_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Stable keys for all actions; action-specific keys merged on top.
 
     ``owner_name`` is populated for connector-backed actions (e.g. Google
     Calendar) that need to resolve the end-user's stored OAuth tokens from
     the engine-visible DB.
+
+    ``trigger_context`` is the original payload that fired the run
+    (webhook body / headers for HTTP triggers, None for cron/custom).
+    It's exposed as ``{{trigger.*}}`` to *every* step, not just step 1,
+    so chaining an intermediate HTTP / List Events action no longer
+    shadows the original Slack payload. Step 1 still sees the same data
+    under ``{{previous_output.*}}`` for backwards compatibility with
+    existing workflows.
     """
+    now_iso = datetime.now(UTC).isoformat()
     base: dict[str, Any] = {
         EXECUTION_INPUT_RUN_ID: str(run_id),
         EXECUTION_INPUT_WORKFLOW_ID: str(workflow_id),
         EXECUTION_INPUT_PREVIOUS_OUTPUT: previous_output or {},
         EXECUTION_INPUT_OWNER_NAME: owner_name,
+        EXECUTION_INPUT_TRIGGER: trigger_context or {},
+        # ``now`` is injected as an ISO 8601 UTC string so templates
+        # across every action ({{now}} in an email subject, HTTP body,
+        # etc.) can reach a canonical "moment this step ran" without
+        # calling into action-specific code. CalendarCreateEventAction
+        # still handles richer ``now+30m`` / ``start+30m`` tokens of
+        # its own because the template engine is intentionally a dumb
+        # string substituter and time math doesn't belong in it.
+        "now": now_iso,
     }
 
     # Template context passed to every ``{{path}}`` substitution. Keeping

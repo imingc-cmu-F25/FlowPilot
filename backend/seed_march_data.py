@@ -187,9 +187,18 @@ WORKFLOWS = [
                     "step_order": 2,
                     "name": "Schedule review meeting",
                     "calendar_id": "primary",
-                    "title_template": "Weekly Review - {{trigger.date}}",
-                    "start_mapping": "$.trigger.date",
-                    "end_mapping": "$.trigger.date",
+                    # Use the project's {{...}} templating (see
+                    # backend/app/execution/templating.py). The previous
+                    # step_runner build does NOT understand JSONPath —
+                    # the earlier "$.trigger.date" strings here were
+                    # pure cargo-cult and would have been passed to
+                    # Google Calendar verbatim if these runs were
+                    # re-executed. Seed runs are synthetic, but keep
+                    # the fields valid so this row also serves as a
+                    # reference example in the workflow list.
+                    "title_template": "Weekly Review for {{owner_name}}",
+                    "start_mapping": "{{previous_output.events.0.start}}",
+                    "end_mapping": "{{previous_output.events.0.end}}",
                 },
             },
         ],

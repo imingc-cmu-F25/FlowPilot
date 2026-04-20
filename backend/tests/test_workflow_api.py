@@ -361,3 +361,114 @@ class TestWebhookIngest:
         body = ingest.json()
         assert body["matched_workflows"] == 0
         assert body["emitted_runs"] == 0
+
+
+# POST|PUT /workflows — webhook path uniqueness
+class TestWebhookPathUniqueness:
+    """Two enabled webhook workflows must never share the same
+    (path, method). Otherwise a single incoming request fans out to
+    both owners, which is a cross-tenant correctness bug.
+    """
+
+    def test_second_enabled_webhook_on_same_path_is_rejected(self):
+        r1 = client.post(
+            "/api/workflows",
+            json=webhook_payload(
+                enabled=True,
+                trigger={"type": "webhook", "parameters": {"path": "/hooks/shared", "method": "POST"}},
+            ),
+        )
+        assert r1.status_code == 201, r1.json()
+
+        r2 = client.post(
+            "/api/workflows",
+            json=webhook_payload(
+                enabled=True,
+                trigger={"type": "webhook", "parameters": {"path": "/hooks/shared", "method": "POST"}},
+            ),
+        )
+        assert r2.status_code == 409, r2.json()
+        detail = r2.json()["detail"]
+        assert "already" in detail["message"].lower()
+        assert detail["errors"][0]["field"] == "trigger.path"
+
+    def test_disabled_second_webhook_on_same_path_is_allowed(self):
+        """Disabled workflows don't route HTTP traffic, so they can
+        happily share a path with an enabled one — enabling them later
+        is what re-runs the check.
+        """
+        client.post(
+            "/api/workflows",
+            json=webhook_payload(
+                enabled=True,
+                trigger={"type": "webhook", "parameters": {"path": "/hooks/shared2", "method": "POST"}},
+            ),
+        )
+        r2 = client.post(
+            "/api/workflows",
+            json=webhook_payload(
+                enabled=False,
+                trigger={"type": "webhook", "parameters": {"path": "/hooks/shared2", "method": "POST"}},
+            ),
+        )
+        assert r2.status_code == 201, r2.json()
+
+    def test_enabling_a_colliding_workflow_later_is_rejected(self):
+        r1 = client.post(
+            "/api/workflows",
+            json=webhook_payload(
+                enabled=True,
+                trigger={"type": "webhook", "parameters": {"path": "/hooks/shared3", "method": "POST"}},
+            ),
+        )
+        assert r1.status_code == 201
+
+        r2 = client.post(
+            "/api/workflows",
+            json=webhook_payload(
+                enabled=False,
+                trigger={"type": "webhook", "parameters": {"path": "/hooks/shared3", "method": "POST"}},
+            ),
+        )
+        wf2_id = r2.json()["workflow_id"]
+
+        # Flipping the second to enabled would now collide.
+        r3 = client.put(f"/api/workflows/{wf2_id}", json={"enabled": True})
+        assert r3.status_code == 409, r3.json()
+
+    def test_different_methods_on_same_path_do_not_collide(self):
+        r1 = client.post(
+            "/api/workflows",
+            json=webhook_payload(
+                enabled=True,
+                trigger={"type": "webhook", "parameters": {"path": "/hooks/mixed", "method": "POST"}},
+            ),
+        )
+        assert r1.status_code == 201
+
+        r2 = client.post(
+            "/api/workflows",
+            json=webhook_payload(
+                enabled=True,
+                trigger={"type": "webhook", "parameters": {"path": "/hooks/mixed", "method": "GET"}},
+            ),
+        )
+        assert r2.status_code == 201, r2.json()
+
+    def test_updating_own_workflow_does_not_self_collide(self):
+        """A workflow must not collide with itself when it re-saves the same path."""
+        r1 = client.post(
+            "/api/workflows",
+            json=webhook_payload(
+                enabled=True,
+                trigger={"type": "webhook", "parameters": {"path": "/hooks/own", "method": "POST"}},
+            ),
+        )
+        wf_id = r1.json()["workflow_id"]
+
+        # Re-saving with the same path should succeed (exclude-self).
+        r2 = client.put(
+            f"/api/workflows/{wf_id}",
+            json={"trigger": {"type": "webhook", "parameters": {"path": "/hooks/own", "method": "POST"}}},
+        )
+        assert r2.status_code == 200, r2.json()

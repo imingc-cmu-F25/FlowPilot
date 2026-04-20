@@ -42,6 +42,12 @@ EXECUTION_INPUT_PREVIOUS_OUTPUT = "previous_output"
 # Present for every step so connector-backed actions (e.g. Google Calendar)
 # can resolve the owning user's stored credentials without a separate hop.
 EXECUTION_INPUT_OWNER_NAME = "owner_name"
+# Every step — regardless of position — gets the original trigger payload
+# under this key. It decouples "what fired me" (the trigger) from "what
+# the previous step returned" (previous_output), so chaining an HTTP call
+# or a List Upcoming Events step between the webhook and a Create
+# Calendar Event doesn't blow away ``{{trigger.parsed.duration}}``.
+EXECUTION_INPUT_TRIGGER = "trigger"
 
 
 def public_run_status_values() -> tuple[str, ...]:

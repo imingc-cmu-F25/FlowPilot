@@ -25,6 +25,10 @@ export interface CustomTriggerConfig {
   condition: string;
   source: string;
   description: string;
+  // IANA zone used when resolving `hour`, `minute`, `weekday`, … so a
+  // user writing `hour == 8` means 8 a.m. in *their* timezone, not UTC.
+  // Mirrors the `timezone` field on TimeTriggerConfig.
+  timezone: string;
 }
 
 export interface CalendarEventTriggerConfig {
@@ -110,12 +114,45 @@ export function defaultTimeTrigger(): TimeTriggerConfig {
   };
 }
 
+function randomHookSuffix(): string {
+  // 8 chars of hex give ~4e9 possibilities — well below birthday-collision
+  // range for any single user's workflow count, and the backend still
+  // enforces uniqueness so a collision just becomes a visible 409 instead
+  // of silent cross-firing.
+  const bytes = new Uint8Array(4);
+  if (typeof crypto !== "undefined" && typeof crypto.getRandomValues === "function") {
+    crypto.getRandomValues(bytes);
+  } else {
+    for (let i = 0; i < bytes.length; i += 1) bytes[i] = Math.floor(Math.random() * 256);
+  }
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
 export function defaultWebhookTrigger(): WebhookTriggerConfig {
-  return { name: "Webhook Trigger", path: "/hooks/my-workflow", method: "POST", secret_ref: "", event_filter: "" };
+  return {
+    name: "Webhook Trigger",
+    // Ship each new webhook with a random suffix so two users (or the
+    // same user building two hooks) don't default to the same URL.
+    // The user is still free to rewrite it to anything readable.
+    path: `/hooks/my-workflow-${randomHookSuffix()}`,
+    method: "POST",
+    secret_ref: "",
+    event_filter: "",
+  };
 }
 
 export function defaultCustomTrigger(): CustomTriggerConfig {
-  return { name: "Custom Trigger", condition: "true", source: "event_payload", description: "" };
+  return {
+    name: "Custom Trigger",
+    condition: "true",
+    source: "event_payload",
+    description: "",
+    // Default to the browser's zone so time-based expressions feel
+    // consistent with the TimeTrigger form. Users on the backend side
+    // (created pre-migration) will still default to UTC via the
+    // Pydantic model.
+    timezone: browserTimezone(),
+  };
 }
 
 export function defaultCalendarEventTrigger(): CalendarEventTriggerConfig {
@@ -153,7 +190,29 @@ export function defaultSendEmailAction(): SendEmailActionConfig {
 }
 
 export function defaultCalendarAction(): CalendarActionConfig {
-  return { name: "Calendar Event", calendar_id: "", title_template: "", start_mapping: "", end_mapping: "" };
+  // Defaults target the Slack-webhook demo since that's the common
+  // "I just added Create Calendar Event to an empty workflow" shape:
+  //   * `now+5m` / `start+30m` are resolved by the backend at run-time
+  //     so the event always lands a few minutes after the trigger
+  //     fires — no hand-written ISO 8601 required.
+  //   * The title pulls the text the Slack user typed, falling back
+  //     gracefully to the command if someone triggered via curl.
+  // If the user chains this after "List Upcoming Events" instead, the
+  // hint block in CalendarActionForm documents the events.0.* paths.
+  return {
+    name: "Calendar Event",
+    calendar_id: "primary",
+    // Use ``{{trigger.*}}`` so inserting an intermediate step (e.g.
+    // HTTP Request for logging, List Upcoming Events for conflict
+    // checks) between the webhook trigger and this action doesn't
+    // break the placeholders. The original Slack payload stays
+    // reachable on every step. For step 1 this is identical to
+    // ``{{previous_output.*}}`` because the engine seeds the first
+    // step's previous_output from the trigger context.
+    title_template: "Focus: {{trigger.parsed.subject}}",
+    start_mapping: "now+5m",
+    end_mapping: "start+{{trigger.parsed.duration}}",
+  };
 }
 
 export function defaultCalendarListUpcomingAction(): CalendarListUpcomingActionConfig {

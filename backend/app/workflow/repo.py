@@ -88,6 +88,47 @@ class WorkflowRepository:
             for wf in wf_orms
         ]
 
+    def find_enabled_webhook_conflict(
+        self,
+        path: str,
+        method: str,
+        exclude_workflow_id: UUID | None = None,
+    ) -> UUID | None:
+        """Return the id of any *other* enabled webhook workflow that
+        already owns (path, method), or None when the slot is free.
+
+        Used by the API layer to reject create/update operations that
+        would put two enabled webhook workflows on the same URL.
+        Updating a workflow to the same path it already has must not
+        collide with itself — hence ``exclude_workflow_id``.
+        """
+        normalized_method = method.upper()
+        wf_orms = (
+            self._db.query(WorkflowORM)
+            .join(WorkflowTriggerORM, WorkflowTriggerORM.workflow_id == WorkflowORM.id)
+            .filter(
+                WorkflowORM.enabled.is_(True),
+                WorkflowTriggerORM.type == "webhook",
+            )
+            .all()
+        )
+        for wf_orm in wf_orms:
+            if exclude_workflow_id is not None and wf_orm.id == exclude_workflow_id:
+                continue
+            trigger_orm = (
+                self._db.query(WorkflowTriggerORM)
+                .filter(WorkflowTriggerORM.workflow_id == wf_orm.id)
+                .one_or_none()
+            )
+            if trigger_orm is None:
+                continue
+            cfg = _trigger_adapter.validate_python(trigger_orm.config)
+            if not isinstance(cfg, WebhookTriggerConfig):
+                continue
+            if cfg.path == path and cfg.method.upper() == normalized_method:
+                return wf_orm.id
+        return None
+
     def list_enabled_for_webhook(self, path: str, method: str) -> list[WorkflowDefinition]:
         """
         Return enabled workflows whose webhook trigger matches (path, method).
