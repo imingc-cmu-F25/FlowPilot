@@ -182,6 +182,20 @@ class WorkflowRunRepository:
         )
         return [self._to_domain(r) for r in rows]
 
+    def list_owner_workflow_names(self, owner_name: str) -> dict[str, str]:
+        """Return {workflow_id_str: name} for every workflow owned by `owner_name`.
+
+        Used by the reporting pipeline to turn UUIDs into human-readable
+        names in the rendered report. Kept here (rather than in the workflow
+        repo) so the reporting pipeline depends on a single repo.
+        """
+        rows = (
+            self._db.query(WorkflowORM.id, WorkflowORM.name)
+            .filter(WorkflowORM.owner_name == owner_name)
+            .all()
+        )
+        return {str(wf_id): name for wf_id, name in rows}
+
     #  private
 
     @staticmethod

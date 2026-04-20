@@ -395,6 +395,7 @@ export type AggregatedMetrics = {
   success_rate: number;
   avg_duration_seconds: number;
   runs_per_workflow: Record<string, number>;
+  workflow_names: Record<string, string>;
   top_error_messages: string[];
 };
 
@@ -426,6 +427,16 @@ export async function fetchReport(reportId: string): Promise<MonthlyReport> {
   const data = await parseBody(res);
   if (!res.ok) throw new Error(extractDetail(data) ?? res.statusText);
   return data as MonthlyReport;
+}
+
+export async function deleteReport(reportId: string): Promise<void> {
+  const res = await apiFetch(`${API_BASE}/reports/${reportId}`, {
+    method: "DELETE",
+  });
+  if (!res.ok) {
+    const data = await parseBody(res);
+    throw new Error(extractDetail(data) ?? res.statusText);
+  }
 }
 
 export async function generateReport(payload: {

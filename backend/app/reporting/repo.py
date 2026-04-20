@@ -49,6 +49,14 @@ class ReportRepository:
         self._db.flush()
         return self._to_domain(orm)
 
+    def delete(self, report_id: UUID) -> bool:
+        orm = self._db.get(ReportORM, report_id)
+        if orm is None:
+            return False
+        self._db.delete(orm)
+        self._db.flush()
+        return True
+
     def mark_failed(self, report_id: UUID, error: str) -> MonthlyReport | None:
         orm = self._db.get(ReportORM, report_id)
         if orm is None:
