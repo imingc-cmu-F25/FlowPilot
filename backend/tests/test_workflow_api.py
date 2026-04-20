@@ -21,7 +21,9 @@ def ensure_owner_user() -> None:
     )
     assert response.status_code in (200, 409)
 
-#  Shared payload builders 
+
+#  Shared payload builders
+
 
 def schedule_payload(**overrides) -> dict:
     base = {
@@ -67,7 +69,7 @@ def create_workflow(**overrides) -> dict:
     return r.json()
 
 
-#  POST /workflows 
+#  POST /workflows
 class TestCreateWorkflow:
     def test_returns_201(self):
         r = client.post("/api/workflows", json=schedule_payload())
@@ -113,7 +115,7 @@ class TestCreateWorkflow:
         assert r.status_code == 422
 
 
-#  GET /workflows 
+#  GET /workflows
 class TestListWorkflows:
     def test_empty_list_initially(self):
         r = client.get("/api/workflows")
@@ -139,7 +141,7 @@ class TestListWorkflows:
         assert isinstance(r.json(), list)
 
 
-#  GET /workflows/{wf_id} 
+#  GET /workflows/{wf_id}
 class TestGetWorkflow:
     def test_returns_workflow_by_id(self):
         created = create_workflow(name="Fetch Me")
@@ -165,7 +167,7 @@ class TestGetWorkflow:
         assert len(r.json()["steps"]) == 1
 
 
-#  PUT /workflows/{wf_id} 
+#  PUT /workflows/{wf_id}
 class TestUpdateWorkflow:
     def test_update_name(self):
         created = create_workflow(name="Old Name")
@@ -194,14 +196,15 @@ class TestUpdateWorkflow:
     def test_update_trigger(self):
         created = create_workflow()
         wf_id = created["workflow_id"]
-        r = client.put(f"/api/workflows/{wf_id}", json={
-            "trigger": {"type": "webhook", "parameters": {"path": "/hooks/new"}}
-        })
+        r = client.put(
+            f"/api/workflows/{wf_id}",
+            json={"trigger": {"type": "webhook", "parameters": {"path": "/hooks/new"}}},
+        )
         assert r.status_code == 200
         assert r.json()["trigger"]["type"] == "webhook"
 
 
-#  DELETE /workflows/{wf_id} 
+#  DELETE /workflows/{wf_id}
 class TestDeleteWorkflow:
     def test_returns_204(self):
         created = create_workflow()
@@ -222,7 +225,7 @@ class TestDeleteWorkflow:
         assert r.status_code == 204
 
 
-#  POST /workflows/{wf_id}/validate 
+#  POST /workflows/{wf_id}/validate
 class TestValidateEndpoint:
     def test_valid_workflow_returns_valid_true(self):
         created = create_workflow()
@@ -243,7 +246,7 @@ class TestValidateEndpoint:
         assert "errors" in r.json()
 
 
-#  POST /workflows/{wf_id}/activate 
+#  POST /workflows/{wf_id}/activate
 class TestActivateEndpoint:
     def test_valid_workflow_activates_successfully(self):
         created = create_workflow()
@@ -266,7 +269,7 @@ class TestActivateEndpoint:
         assert r.json()["status"] == "active"
 
 
-#  GET /registry/actions 
+#  GET /registry/actions
 class TestRegistryEndpoints:
     def test_list_actions_returns_200(self):
         r = client.get("/api/registry/actions")
@@ -296,6 +299,7 @@ class TestRegistryEndpoints:
         ids = [t["id"] for t in r.json()]
         assert "webhook" in ids
 
+
 # GET /hooks/{hook_path:path}
 class TestWebhookIngest:
     def test_matching_enabled_webhook_emits_run(self, monkeypatch):
@@ -305,8 +309,8 @@ class TestWebhookIngest:
             json=webhook_payload(
                 enabled=True,
                 trigger={
-                    "type": "webhook", 
-                    "parameters": {"path": "/hooks/test", "method": "POST"}
+                    "type": "webhook",
+                    "parameters": {"path": "/hooks/test", "method": "POST"},
                 },
             ),
         )
@@ -375,7 +379,10 @@ class TestWebhookPathUniqueness:
             "/api/workflows",
             json=webhook_payload(
                 enabled=True,
-                trigger={"type": "webhook", "parameters": {"path": "/hooks/shared", "method": "POST"}},
+                trigger={
+                    "type": "webhook",
+                    "parameters": {"path": "/hooks/shared", "method": "POST"},
+                },
             ),
         )
         assert r1.status_code == 201, r1.json()
@@ -384,7 +391,10 @@ class TestWebhookPathUniqueness:
             "/api/workflows",
             json=webhook_payload(
                 enabled=True,
-                trigger={"type": "webhook", "parameters": {"path": "/hooks/shared", "method": "POST"}},
+                trigger={
+                    "type": "webhook",
+                    "parameters": {"path": "/hooks/shared", "method": "POST"},
+                },
             ),
         )
         assert r2.status_code == 409, r2.json()
@@ -401,14 +411,20 @@ class TestWebhookPathUniqueness:
             "/api/workflows",
             json=webhook_payload(
                 enabled=True,
-                trigger={"type": "webhook", "parameters": {"path": "/hooks/shared2", "method": "POST"}},
+                trigger={
+                    "type": "webhook",
+                    "parameters": {"path": "/hooks/shared2", "method": "POST"},
+                },
             ),
         )
         r2 = client.post(
             "/api/workflows",
             json=webhook_payload(
                 enabled=False,
-                trigger={"type": "webhook", "parameters": {"path": "/hooks/shared2", "method": "POST"}},
+                trigger={
+                    "type": "webhook",
+                    "parameters": {"path": "/hooks/shared2", "method": "POST"},
+                },
             ),
         )
         assert r2.status_code == 201, r2.json()
@@ -418,7 +434,10 @@ class TestWebhookPathUniqueness:
             "/api/workflows",
             json=webhook_payload(
                 enabled=True,
-                trigger={"type": "webhook", "parameters": {"path": "/hooks/shared3", "method": "POST"}},
+                trigger={
+                    "type": "webhook",
+                    "parameters": {"path": "/hooks/shared3", "method": "POST"},
+                },
             ),
         )
         assert r1.status_code == 201
@@ -427,7 +446,10 @@ class TestWebhookPathUniqueness:
             "/api/workflows",
             json=webhook_payload(
                 enabled=False,
-                trigger={"type": "webhook", "parameters": {"path": "/hooks/shared3", "method": "POST"}},
+                trigger={
+                    "type": "webhook",
+                    "parameters": {"path": "/hooks/shared3", "method": "POST"},
+                },
             ),
         )
         wf2_id = r2.json()["workflow_id"]
@@ -441,7 +463,10 @@ class TestWebhookPathUniqueness:
             "/api/workflows",
             json=webhook_payload(
                 enabled=True,
-                trigger={"type": "webhook", "parameters": {"path": "/hooks/mixed", "method": "POST"}},
+                trigger={
+                    "type": "webhook",
+                    "parameters": {"path": "/hooks/mixed", "method": "POST"},
+                },
             ),
         )
         assert r1.status_code == 201
@@ -450,7 +475,10 @@ class TestWebhookPathUniqueness:
             "/api/workflows",
             json=webhook_payload(
                 enabled=True,
-                trigger={"type": "webhook", "parameters": {"path": "/hooks/mixed", "method": "GET"}},
+                trigger={
+                    "type": "webhook",
+                    "parameters": {"path": "/hooks/mixed", "method": "GET"},
+                },
             ),
         )
         assert r2.status_code == 201, r2.json()
@@ -469,6 +497,11 @@ class TestWebhookPathUniqueness:
         # Re-saving with the same path should succeed (exclude-self).
         r2 = client.put(
             f"/api/workflows/{wf_id}",
-            json={"trigger": {"type": "webhook", "parameters": {"path": "/hooks/own", "method": "POST"}}},
+            json={
+                "trigger": {
+                    "type": "webhook",
+                    "parameters": {"path": "/hooks/own", "method": "POST"},
+                }
+            },
         )
         assert r2.status_code == 200, r2.json()
