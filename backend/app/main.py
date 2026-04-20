@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.router import api_router
+from app.connectors.router import router as connectors_router
 from app.core.config import settings
 from app.db.connector import report_connection_at_startup
 from app.db.session import init_db
@@ -37,3 +38,4 @@ app.add_middleware(
 )
 app.include_router(api_router, prefix="/api")
 app.include_router(user_router, prefix="/api/users")
+app.include_router(connectors_router, prefix="/api")

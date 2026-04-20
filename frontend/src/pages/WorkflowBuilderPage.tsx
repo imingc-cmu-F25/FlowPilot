@@ -1,6 +1,15 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router";
-import { Clock, Webhook, Mail, Bell, Code, SlidersHorizontal } from "lucide-react";
+import {
+  Clock,
+  Webhook,
+  Mail,
+  Bell,
+  Code,
+  SlidersHorizontal,
+  CalendarClock,
+  CalendarDays,
+} from "lucide-react";
 import {
   NodePalette,
   type PaletteItem,
@@ -51,11 +60,22 @@ const triggers = [
   { category: "time", title: "Time-based Trigger", icon: Clock },
   { category: "webhook", title: "Webhook Trigger", icon: Webhook },
   { category: "custom", title: "Custom Trigger", icon: SlidersHorizontal },
+  {
+    category: "calendar_event",
+    title: "New Calendar Event",
+    icon: CalendarClock,
+  },
 ];
 
 const actions = [
   { category: "email", title: "Send Email", icon: Mail },
   { category: "api", title: "API Call", icon: Code },
+  { category: "calendar", title: "Create Calendar Event", icon: Bell },
+  {
+    category: "calendar_list",
+    title: "List Upcoming Events",
+    icon: CalendarDays,
+  },
 ];
 
 const INITIAL_CHAT: ChatMessage[] = [
@@ -179,6 +199,26 @@ export function WorkflowBuilderPage() {
           description: String((wf.trigger as { description?: string }).description ?? ""),
         },
       });
+    } else if (wf.trigger.type === "calendar_event") {
+      result.push({
+        id: `trigger-${String((wf.trigger as { trigger_id?: string }).trigger_id ?? Date.now())}`,
+        type: "trigger",
+        category: "calendar_event",
+        title: "New Calendar Event",
+        icon: CalendarClock,
+        config: {
+          name: "New Calendar Event",
+          calendar_id: String(
+            (wf.trigger as { calendar_id?: string }).calendar_id ?? "primary",
+          ),
+          title_contains: String(
+            (wf.trigger as { title_contains?: string }).title_contains ?? "",
+          ),
+          dedup_seconds: Number(
+            (wf.trigger as { dedup_seconds?: number }).dedup_seconds ?? 60,
+          ),
+        },
+      });
     }
 
     const sortedSteps = [...wf.steps].sort(
@@ -212,7 +252,7 @@ export function WorkflowBuilderPage() {
           id: `action-${step.step_order}-${Date.now()}`,
           type: "action",
           category: "calendar",
-          title: "Calendar Event",
+          title: "Create Calendar Event",
           icon: Bell,
           config: {
             name: step.name,
@@ -227,6 +267,29 @@ export function WorkflowBuilderPage() {
             ),
             end_mapping: String(
               (step as { end_mapping?: string }).end_mapping ?? "",
+            ),
+          },
+        });
+      } else if (step.action_type === "calendar_list_upcoming") {
+        result.push({
+          id: `action-${step.step_order}-${Date.now()}`,
+          type: "action",
+          category: "calendar_list",
+          title: "List Upcoming Events",
+          icon: CalendarDays,
+          config: {
+            name: step.name,
+            calendar_id: String(
+              (step as { calendar_id?: string }).calendar_id ?? "primary",
+            ),
+            max_results: Number(
+              (step as { max_results?: number }).max_results ?? 10,
+            ),
+            title_contains: String(
+              (step as { title_contains?: string }).title_contains ?? "",
+            ),
+            window_hours: Number(
+              (step as { window_hours?: number }).window_hours ?? 0,
             ),
           },
         });
@@ -407,15 +470,24 @@ export function WorkflowBuilderPage() {
                 description: String(triggerCfg.description ?? ""),
               },
             }
-          : {
-              type: "webhook" as const,
-              parameters: {
-                path: triggerCfg.path,
-                method: triggerCfg.method ?? "POST",
-                secret_ref: triggerCfg.secret_ref ?? "",
-                event_filter: triggerCfg.event_filter ?? "",
-              },
-            };
+          : triggerNode.category === "calendar_event"
+            ? {
+                type: "calendar_event" as const,
+                parameters: {
+                  calendar_id: String(triggerCfg.calendar_id ?? "primary"),
+                  title_contains: String(triggerCfg.title_contains ?? ""),
+                  dedup_seconds: Number(triggerCfg.dedup_seconds ?? 60),
+                },
+              }
+            : {
+                type: "webhook" as const,
+                parameters: {
+                  path: triggerCfg.path,
+                  method: triggerCfg.method ?? "POST",
+                  secret_ref: triggerCfg.secret_ref ?? "",
+                  event_filter: triggerCfg.event_filter ?? "",
+                },
+              };
 
     const steps = actionNodes.map((n, i) => {
       const cfg = n.config as unknown as Record<string, unknown>;
@@ -440,6 +512,18 @@ export function WorkflowBuilderPage() {
             title_template: cfg.title_template,
             start_mapping: cfg.start_mapping,
             end_mapping: cfg.end_mapping,
+          },
+        };
+      }
+      if (n.category === "calendar_list") {
+        return {
+          action_type: "calendar_list_upcoming" as const,
+          ...base,
+          parameters: {
+            calendar_id: String(cfg.calendar_id ?? "primary"),
+            max_results: Number(cfg.max_results ?? 10),
+            title_contains: String(cfg.title_contains ?? ""),
+            window_hours: Math.max(0, Number(cfg.window_hours ?? 0)),
           },
         };
       }

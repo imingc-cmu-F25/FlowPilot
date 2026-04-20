@@ -22,3 +22,10 @@ class UserSessionORM(Base):
         ForeignKey("users.name", ondelete="CASCADE"),
         nullable=False,
     )
+    # Transient PKCE code_verifier for an in-flight Google OAuth exchange.
+    # Written when the user clicks "Connect Google Calendar"; consumed +
+    # cleared by the /connectors/google/callback endpoint. Never exposed
+    # to the browser.
+    oauth_code_verifier: Mapped[str | None] = mapped_column(
+        String(256), nullable=True
+    )

@@ -60,7 +60,7 @@ def test_engine_marks_success_with_mocked_action(db_session):
     db_session.commit()
     rid = created.run_id
 
-    with patch("app.execution.engine.run_action_sync", return_value={"ok": True}):
+    with patch("app.execution.engine.dispatch_action_step", return_value={"ok": True}):
         ExecutionEngine(db_session).execute(rid)
 
     db_session.expire_all()
@@ -77,7 +77,7 @@ def test_try_claim_idempotent_second_worker(db_session):
     db_session.commit()
     rid = created.run_id
 
-    with patch("app.execution.engine.run_action_sync", return_value={"ok": True}):
+    with patch("app.execution.engine.dispatch_action_step", return_value={"ok": True}):
         ExecutionEngine(db_session).execute(rid)
         # Second invocation should not fail; run already terminal
         ExecutionEngine(db_session).execute(rid)

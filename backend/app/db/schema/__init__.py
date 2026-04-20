@@ -7,10 +7,12 @@ know the internal file layout:
     from app.db.schema import UserORM, WorkflowORM, WorkflowRunORM, ...
 """
 
+from app.db.schema.cached_calendar_event import CachedCalendarEventORM
 from app.db.schema.report import ReportORM
 from app.db.schema.suggestion import SuggestionORM
 from app.db.schema.user import UserORM, UserSessionORM
 from app.db.schema.user_action import UserActionORM
+from app.db.schema.user_connection import UserConnectionORM
 from app.db.schema.user_trigger import UserTriggerORM
 from app.db.schema.workflow import WorkflowORM
 from app.db.schema.workflow_run import WorkflowRunORM
@@ -19,10 +21,12 @@ from app.db.schema.workflow_step_run import WorkflowStepRunORM
 from app.db.schema.workflow_trigger import WorkflowTriggerORM
 
 __all__ = [
+    "CachedCalendarEventORM",
     "ReportORM",
     "SuggestionORM",
     "UserORM",
     "UserSessionORM",
+    "UserConnectionORM",
     "UserTriggerORM",
     "UserActionORM",
     "WorkflowORM",

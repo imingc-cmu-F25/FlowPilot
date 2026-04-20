@@ -5,16 +5,20 @@ import type {
   TimeTriggerConfig,
   WebhookTriggerConfig,
   CustomTriggerConfig,
+  CalendarEventTriggerConfig,
   HttpRequestActionConfig,
   SendEmailActionConfig,
   CalendarActionConfig,
+  CalendarListUpcomingActionConfig,
 } from "./nodeConfig";
 import { TimeTriggerForm } from "./forms/TimeTriggerForm";
 import { WebhookTriggerForm } from "./forms/WebhookTriggerForm";
 import { CustomTriggerForm } from "./forms/CustomTriggerForm";
+import { CalendarEventTriggerForm } from "./forms/CalendarEventTriggerForm";
 import { HttpRequestActionForm } from "./forms/HttpRequestActionForm";
 import { SendEmailActionForm } from "./forms/SendEmailActionForm";
 import { CalendarActionForm } from "./forms/CalendarActionForm";
+import { CalendarListUpcomingForm } from "./forms/CalendarListUpcomingForm";
 
 interface NodePropertiesPanelProps {
   type: "trigger" | "action";
@@ -28,7 +32,9 @@ const SECTION_LABELS: Record<string, string> = {
   time: "Time-based Trigger",
   webhook: "Webhook Trigger",
   custom: "Custom Trigger",
-  calendar: "Calendar Event",
+  calendar_event: "New Calendar Event",
+  calendar: "Create Calendar Event",
+  calendar_list: "List Upcoming Events",
   email: "Send Email",
   api: "HTTP Request",
   notification: "HTTP Request",
@@ -89,6 +95,11 @@ export function NodePropertiesPanel({
             config={draft as CustomTriggerConfig}
             onChange={setDraft}
           />
+        ) : type === "trigger" && category === "calendar_event" ? (
+          <CalendarEventTriggerForm
+            config={draft as CalendarEventTriggerConfig}
+            onChange={setDraft}
+          />
         ) : type === "trigger" && category === "time" ? (
           <TimeTriggerForm
             config={draft as TimeTriggerConfig}
@@ -102,6 +113,11 @@ export function NodePropertiesPanel({
         ) : category === "calendar" ? (
           <CalendarActionForm
             config={draft as CalendarActionConfig}
+            onChange={setDraft}
+          />
+        ) : category === "calendar_list" ? (
+          <CalendarListUpcomingForm
+            config={draft as CalendarListUpcomingActionConfig}
             onChange={setDraft}
           />
         ) : (

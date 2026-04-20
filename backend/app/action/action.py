@@ -11,6 +11,10 @@ from pydantic import Field
 # Re-export base types so callers only need `from app.action.action import ...`
 from app.action.base import ActionSchema, ActionType, BaseAction, StepSpec  # noqa: F401
 from app.action.calendarAction import CalendarActionStep, CalendarCreateEventAction  # noqa: F401
+from app.action.calendarListUpcomingAction import (  # noqa: F401
+    CalendarListUpcomingAction,
+    CalendarListUpcomingActionStep,
+)
 
 # Concrete step models (each imports from base.py — no circular dependency)
 from app.action.httpRequestAction import HttpRequestAction, HttpRequestActionStep  # noqa: F401
@@ -21,7 +25,10 @@ CalendarCreateEventActionStep = CalendarActionStep
 
 # Discriminated union — used as WorkflowDefinition.steps element type
 ActionStep = Annotated[
-    HttpRequestActionStep | SendEmailActionStep | CalendarActionStep,
+    HttpRequestActionStep
+    | SendEmailActionStep
+    | CalendarActionStep
+    | CalendarListUpcomingActionStep,
     Field(discriminator="action_type"),
 ]
 
@@ -30,6 +37,7 @@ _STEP_CONSTRUCTORS: dict[ActionType, type] = {
     ActionType.HTTP_REQUEST: HttpRequestActionStep,
     ActionType.SEND_EMAIL: SendEmailActionStep,
     ActionType.CALENDAR_CREATE_EVENT: CalendarActionStep,
+    ActionType.CALENDAR_LIST_UPCOMING: CalendarListUpcomingActionStep,
 }
 
 
@@ -37,7 +45,12 @@ class ActionStepFactory:
     @classmethod
     def create(
         cls, spec: StepSpec
-    ) -> HttpRequestActionStep | SendEmailActionStep | CalendarActionStep:
+    ) -> (
+        HttpRequestActionStep
+        | SendEmailActionStep
+        | CalendarActionStep
+        | CalendarListUpcomingActionStep
+    ):
         step_cls = _STEP_CONSTRUCTORS.get(spec.action_type)
         if step_cls is None:
             raise ValueError(f"Unknown action type: {spec.action_type}")

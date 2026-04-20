@@ -25,13 +25,21 @@ class CalendarActionStep(BaseModel):
 
 
 class CalendarCreateEventAction(BaseAction):
-    """
-    Creates an event on an external calendar.
+    """Create an event on the user's Google Calendar.
 
-    The real Google Calendar integration will live in app.connectors.calendar;
-    this implementation performs a local no-op so workflows using this action
-    can still run end-to-end. It returns an event record the next step can
-    reference through the usual context mechanism.
+    Behaviour depends on the runtime state:
+
+    * Server has Google OAuth credentials configured (``GOOGLE_CLIENT_ID``
+      + ``GOOGLE_CLIENT_SECRET``) **and** the workflow's owner has linked
+      a Google account via ``/api/connectors/google/authorize`` →
+      call the real Google Calendar API and return the created event.
+    * Otherwise → fall back to the original mock behaviour so the demo
+      workflows still run end-to-end without any external setup.
+
+    The ``owner_name`` input key is populated by
+    ``app.execution.step_runner.build_execution_inputs`` using the
+    workflow's ``owner_name`` column, which is how we resolve whose
+    tokens to load.
     """
 
     schema = ActionSchema(
@@ -48,16 +56,64 @@ class CalendarCreateEventAction(BaseAction):
     )
 
     async def execute(self, inputs: dict) -> dict:
-        """
-        @param inputs: A dict with keys "calendar_id", "title", "start", "end"
-        @return: A dict representing the (mock) created event
-        """
+        """Try the real Google Calendar; otherwise fall back to the mock."""
+        from app.connectors import google_calendar as gcal
+
+        owner_name = inputs.get("owner_name")
+        mock_event = self._mock_event(inputs)
+
+        if not owner_name or not gcal.is_configured():
+            return mock_event
+
+        # Defer DB imports so the action module stays cheap to import for
+        # tests that never touch the DB.
+        from app.db.session import new_session
+
+        session = new_session()
+        try:
+            try:
+                created = gcal.create_event(
+                    session,
+                    owner_name,
+                    calendar_id=inputs["calendar_id"],
+                    title=str(inputs.get("title") or ""),
+                    start=str(inputs.get("start") or ""),
+                    end=str(inputs.get("end") or ""),
+                )
+                session.commit()
+            except gcal.GoogleCalendarNotConnected:
+                session.rollback()
+                mock_event["note"] = "fallback_mock_user_not_connected"
+                return mock_event
+            except Exception:  # noqa: BLE001 — propagate to engine as step failure
+                session.rollback()
+                raise
+        finally:
+            session.close()
+
         return {
             "status": "created",
-            "calendar_id": inputs["calendar_id"],
+            "calendar_id": created.get("organizer", {}).get("email")
+                or inputs["calendar_id"],
+            "event": {
+                "id": created.get("id"),
+                "title": created.get("summary"),
+                "start": (created.get("start") or {}).get("dateTime"),
+                "end": (created.get("end") or {}).get("dateTime"),
+                "html_link": created.get("htmlLink"),
+            },
+            "source": "google_calendar",
+        }
+
+    @staticmethod
+    def _mock_event(inputs: dict) -> dict:
+        return {
+            "status": "created",
+            "calendar_id": inputs.get("calendar_id"),
             "event": {
                 "title": inputs.get("title"),
                 "start": inputs.get("start"),
                 "end": inputs.get("end"),
             },
+            "source": "mock",
         }

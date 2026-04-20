@@ -39,6 +39,9 @@ class ExecutionLogEvent(BaseModel):
 EXECUTION_INPUT_RUN_ID = "run_id"
 EXECUTION_INPUT_WORKFLOW_ID = "workflow_id"
 EXECUTION_INPUT_PREVIOUS_OUTPUT = "previous_output"
+# Present for every step so connector-backed actions (e.g. Google Calendar)
+# can resolve the owning user's stored credentials without a separate hop.
+EXECUTION_INPUT_OWNER_NAME = "owner_name"
 
 
 def public_run_status_values() -> tuple[str, ...]:

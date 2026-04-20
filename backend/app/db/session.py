@@ -117,6 +117,52 @@ def _ensure_workflow_runs_retry_columns() -> None:
                 )
 
 
+def _ensure_user_sessions_pkce_column() -> None:
+    """Add user_sessions.oauth_code_verifier (nullable) if missing.
+
+    Needed so the Google Calendar OAuth flow can persist the PKCE
+    code_verifier between the /authorize and /callback requests.
+    """
+    engine = get_engine()
+    insp = inspect(engine)
+    if not insp.has_table("user_sessions"):
+        return
+    cols = {c["name"] for c in insp.get_columns("user_sessions")}
+    if "oauth_code_verifier" in cols:
+        return
+    ddl = "ALTER TABLE user_sessions ADD COLUMN oauth_code_verifier VARCHAR(256)"
+    with engine.begin() as conn:
+        conn.execute(text(ddl))
+
+
+def _ensure_cached_events_first_seen_column() -> None:
+    """Add cached_calendar_events.first_seen_at (nullable) if missing.
+
+    The calendar_event trigger uses this column to detect genuinely new
+    events instead of ``synced_at``, which the sync task rewrites on
+    every 10-minute tick and therefore causes the trigger to re-fire on
+    every cached event forever. Old rows get NULL; repo.upsert backfills
+    them on the next write and the trigger treats NULL as "older than
+    any bootstrap window", i.e. silently ignored.
+    """
+    engine = get_engine()
+    insp = inspect(engine)
+    if not insp.has_table("cached_calendar_events"):
+        return
+    cols = {c["name"] for c in insp.get_columns("cached_calendar_events")}
+    if "first_seen_at" in cols:
+        return
+    if engine.dialect.name == "postgresql":
+        ddl = (
+            "ALTER TABLE cached_calendar_events "
+            "ADD COLUMN first_seen_at TIMESTAMP WITH TIME ZONE"
+        )
+    else:
+        ddl = "ALTER TABLE cached_calendar_events ADD COLUMN first_seen_at DATETIME"
+    with engine.begin() as conn:
+        conn.execute(text(ddl))
+
+
 def _drop_legacy_payload_column() -> None:
     """
     One-time migration: remove the old workflows.payload blob column that was
@@ -141,6 +187,8 @@ def init_db() -> None:
     _ensure_users_emails_column()
     _migrate_workflow_owner_column()
     _ensure_workflow_runs_retry_columns()
+    _ensure_user_sessions_pkce_column()
+    _ensure_cached_events_first_seen_column()
     _drop_legacy_payload_column()
 
 

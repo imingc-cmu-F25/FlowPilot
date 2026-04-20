@@ -7,6 +7,7 @@ const navLinks = [
   { path: "/dashboard", label: "Dashboard" },
   { path: "/dashboard/workflows", label: "Workflows" },
   { path: "/dashboard/reports", label: "Reports" },
+  { path: "/dashboard/integrations", label: "Integrations" },
 ];
 
 export function DashboardLayout() {
