@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { FileText, Sparkles, RefreshCw } from "lucide-react";
+import { AlertTriangle, FileText, Sparkles, RefreshCw, Trash2 } from "lucide-react";
 import {
+  deleteReport,
   fetchReportsForOwner,
   generateReport,
   type MonthlyReport,
@@ -51,6 +52,17 @@ function previousMonthBounds(): { start: string; end: string } {
   };
 }
 
+function currentMonthToNowBounds(): { start: string; end: string } {
+  const now = new Date();
+  const start = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1),
+  );
+  return {
+    start: start.toISOString(),
+    end: now.toISOString(),
+  };
+}
+
 export function ReportsPage() {
   const owner = getStoredUsername();
   const [reports, setReports] = useState<MonthlyReport[]>([]);
@@ -58,6 +70,8 @@ export function ReportsPage() {
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const load = useCallback(async () => {
     if (!owner) {
@@ -87,16 +101,15 @@ export function ReportsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [owner]);
 
-  const handleGenerate = async () => {
+  const runGenerate = async (bounds: { start: string; end: string }) => {
     if (!owner) return;
     setGenerating(true);
     setError(null);
     try {
-      const { start, end } = previousMonthBounds();
       const created = await generateReport({
         owner_name: owner,
-        period_start: start,
-        period_end: end,
+        period_start: bounds.start,
+        period_end: bounds.end,
       });
       setReports((prev) => [created, ...prev]);
       setSelectedId(created.report_id);
@@ -104,6 +117,26 @@ export function ReportsPage() {
       setError(e instanceof Error ? e.message : "Failed to generate report");
     } finally {
       setGenerating(false);
+    }
+  };
+
+  const handleGenerateLastMonth = () => void runGenerate(previousMonthBounds());
+  const handleGenerateThisMonth = () => void runGenerate(currentMonthToNowBounds());
+
+  const handleConfirmDelete = async () => {
+    if (!confirmingDeleteId) return;
+    const id = confirmingDeleteId;
+    setDeleting(true);
+    setError(null);
+    try {
+      await deleteReport(id);
+      setReports((prev) => prev.filter((r) => r.report_id !== id));
+      setSelectedId((curr) => (curr === id ? null : curr));
+      setConfirmingDeleteId(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to delete report");
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -131,7 +164,15 @@ export function ReportsPage() {
             Refresh
           </button>
           <button
-            onClick={() => void handleGenerate()}
+            onClick={handleGenerateThisMonth}
+            disabled={generating || !owner}
+            className="inline-flex items-center gap-2 rounded-lg border border-blue-200 bg-white px-4 py-2 text-sm font-medium text-blue-700 transition-colors hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <Sparkles className="h-4 w-4" />
+            Generate this month
+          </button>
+          <button
+            onClick={handleGenerateLastMonth}
             disabled={generating || !owner}
             className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
@@ -187,14 +228,55 @@ export function ReportsPage() {
             })}
           </ul>
 
-          {selected && <ReportDetail report={selected} />}
+          {selected && (
+            <ReportDetail
+              report={selected}
+              onRequestDelete={() => setConfirmingDeleteId(selected.report_id)}
+            />
+          )}
+        </div>
+      )}
+
+      {confirmingDeleteId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
+          <div className="w-full max-w-sm rounded-xl border border-gray-200 bg-white p-6 shadow-xl">
+            <div className="mb-3 flex items-center gap-2 text-amber-600">
+              <AlertTriangle className="h-5 w-5 shrink-0" />
+              <span className="text-base font-semibold">Delete this report?</span>
+            </div>
+            <p className="mb-6 text-sm text-gray-600">
+              This report will be permanently removed and cannot be recovered.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setConfirmingDeleteId(null)}
+                disabled={deleting}
+                className="flex-1 rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => void handleConfirmDelete()}
+                disabled={deleting}
+                className="flex-1 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {deleting ? "Deleting…" : "Delete"}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
   );
 }
 
-function ReportDetail({ report }: { report: MonthlyReport }) {
+function ReportDetail({
+  report,
+  onRequestDelete,
+}: {
+  report: MonthlyReport;
+  onRequestDelete: () => void;
+}) {
   const {
     total_runs,
     success_count,
@@ -210,11 +292,20 @@ function ReportDetail({ report }: { report: MonthlyReport }) {
 
   return (
     <div className="rounded-lg border border-gray-200 bg-white p-6">
-      <div className="mb-6 border-b border-gray-100 pb-4">
-        <p className="text-xs uppercase tracking-wide text-gray-500">Period</p>
-        <p className="mt-1 text-lg font-semibold text-gray-900">
-          {formatPeriod(report.period_start, report.period_end)}
-        </p>
+      <div className="mb-6 flex items-start justify-between border-b border-gray-100 pb-4">
+        <div>
+          <p className="text-xs uppercase tracking-wide text-gray-500">Period</p>
+          <p className="mt-1 text-lg font-semibold text-gray-900">
+            {formatPeriod(report.period_start, report.period_end)}
+          </p>
+        </div>
+        <button
+          onClick={onRequestDelete}
+          className="inline-flex items-center gap-2 rounded-lg border border-red-200 bg-white px-3 py-2 text-sm font-medium text-red-700 transition-colors hover:bg-red-50"
+        >
+          <Trash2 className="h-4 w-4" />
+          Delete this report
+        </button>
       </div>
 
       <section className="mb-6">

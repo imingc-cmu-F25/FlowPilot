@@ -429,6 +429,16 @@ export async function fetchReport(reportId: string): Promise<MonthlyReport> {
   return data as MonthlyReport;
 }
 
+export async function deleteReport(reportId: string): Promise<void> {
+  const res = await apiFetch(`${API_BASE}/reports/${reportId}`, {
+    method: "DELETE",
+  });
+  if (!res.ok) {
+    const data = await parseBody(res);
+    throw new Error(extractDetail(data) ?? res.statusText);
+  }
+}
+
 export async function generateReport(payload: {
   owner_name: string;
   period_start: string;
