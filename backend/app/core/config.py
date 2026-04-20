@@ -31,6 +31,9 @@ class Settings(BaseSettings):
     smtp_use_tls: bool = True
     smtp_from: str = "noreply@flowpilot.local"
 
+    sendgrid_api_key: str = ""
+    sendgrid_from: str = ""
+
     openai_api_key: str = ""
     openai_base_url: str = ""
     openai_model: str = ""

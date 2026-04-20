@@ -4,9 +4,11 @@ const envBase = (
   import.meta.env.VITE_API_BASE_URL as string | undefined
 )?.replace(/\/$/, "");
 
+// In dev, fall back to the relative path "/api" so all requests go through
+// Vite's proxy — same origin, no CORS preflight required.
 export const API_BASE = import.meta.env.PROD
   ? (envBase ?? "")
-  : envBase || "http://127.0.0.1:8000/api";
+  : envBase || "/api";
 
 function authHeaders(extra?: HeadersInit): HeadersInit {
   const token = getStoredToken();

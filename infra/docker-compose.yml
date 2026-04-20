@@ -93,6 +93,9 @@ services:
     restart: unless-stopped
     env_file:
       - ../.env
+    environment:
+      # Vite proxy forwards /api/* to the backend service inside Docker.
+      VITE_API_PROXY_TARGET: http://backend:8000
     depends_on:
       - backend
     ports:
