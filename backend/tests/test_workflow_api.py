@@ -121,9 +121,14 @@ class TestListWorkflows:
         assert r.json() == []
 
     def test_returns_created_workflows(self):
+        login_r = client.post(
+            "/api/users/login", json={"name": "test-owner", "password": "password123"}
+        )
+        token = login_r.json()["token"]
+        headers = {"Authorization": f"Bearer {token}"}
         create_workflow(name="WF1")
         create_workflow(name="WF2")
-        r = client.get("/api/workflows")
+        r = client.get("/api/workflows", headers=headers)
         assert r.status_code == 200
         names = {w["name"] for w in r.json()}
         assert "WF1" in names
