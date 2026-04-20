@@ -78,9 +78,10 @@ def list_workflows(
     current_user: str | None = Depends(get_current_user_optional),
 ):
     repo = WorkflowRepository(db)
+    if current_user is None:
+        return []
     workflows = repo.list_all()
-    if current_user is not None:
-        workflows = [wf for wf in workflows if wf.owner_name == current_user]
+    workflows = [wf for wf in workflows if wf.owner_name == current_user]
     return workflows
 
 
