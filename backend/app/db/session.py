@@ -135,6 +135,27 @@ def _ensure_user_sessions_pkce_column() -> None:
         conn.execute(text(ddl))
 
 
+def _ensure_workflows_max_retries_column() -> None:
+    """Add workflows.max_retries (default 0) if missing.
+
+    Keeps the per-workflow retry policy backwards-compatible: existing rows
+    get max_retries=0 — i.e. the same "fail on first error" behaviour they
+    had before the column existed.
+    """
+    engine = get_engine()
+    insp = inspect(engine)
+    if not insp.has_table("workflows"):
+        return
+    cols = {c["name"] for c in insp.get_columns("workflows")}
+    if "max_retries" in cols:
+        return
+    ddl = (
+        "ALTER TABLE workflows ADD COLUMN max_retries INTEGER NOT NULL DEFAULT 0"
+    )
+    with engine.begin() as conn:
+        conn.execute(text(ddl))
+
+
 def _ensure_cached_events_first_seen_column() -> None:
     """Add cached_calendar_events.first_seen_at (nullable) if missing.
 
@@ -187,6 +208,7 @@ def init_db() -> None:
     _ensure_users_emails_column()
     _migrate_workflow_owner_column()
     _ensure_workflow_runs_retry_columns()
+    _ensure_workflows_max_retries_column()
     _ensure_user_sessions_pkce_column()
     _ensure_cached_events_first_seen_column()
     _drop_legacy_payload_column()

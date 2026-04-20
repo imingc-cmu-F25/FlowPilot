@@ -1,3 +1,4 @@
+from app.trigger.calendarEventTrigger import CalendarEventTrigger
 from app.trigger.customTrigger import CustomTrigger
 from app.trigger.timeTrigger import TimeTrigger
 from app.trigger.trigger import BaseTrigger
@@ -26,4 +27,5 @@ class TriggerRegistry:
 TriggerRegistry.register(TimeTrigger)
 TriggerRegistry.register(WebhookTrigger)
 TriggerRegistry.register(CustomTrigger)
+TriggerRegistry.register(CalendarEventTrigger)
 # Register more triggers here

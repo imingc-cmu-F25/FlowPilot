@@ -563,6 +563,38 @@ class TestCustomTriggerEvaluate:
         trigger = CustomTrigger()
         cfg = CustomTriggerConfig(condition="false")
         assert asyncio.run(trigger.evaluate({"config": cfg})) is False
-        
+
     def test_schema_id_is_custom(self):
         assert CustomTrigger.schema.id == "custom"
+
+    def test_comparison_expression(self):
+        trigger = CustomTrigger()
+        # "1 < 2" must evaluate to True for any clock.
+        cfg = CustomTriggerConfig(condition="1 < 2")
+        assert asyncio.run(trigger.evaluate({"config": cfg})) is True
+
+    def test_weekday_membership(self):
+        trigger = CustomTrigger()
+        # weekday is always 0..6; at least one of these two ranges must match.
+        cfg = CustomTriggerConfig(
+            condition="weekday in [0,1,2,3,4] or weekday in [5,6]"
+        )
+        assert asyncio.run(trigger.evaluate({"config": cfg})) is True
+
+    def test_unknown_name_is_false(self):
+        # References to undeclared names must be treated as false, not crash.
+        trigger = CustomTrigger()
+        cfg = CustomTriggerConfig(condition="foobar == 1")
+        assert asyncio.run(trigger.evaluate({"config": cfg})) is False
+
+    def test_malformed_expression_is_false(self):
+        trigger = CustomTrigger()
+        cfg = CustomTriggerConfig(condition="1 +")
+        assert asyncio.run(trigger.evaluate({"config": cfg})) is False
+
+    def test_dangerous_constructs_rejected(self):
+        # Attribute access and function calls are off the whitelist: these
+        # must fall back to False, not execute anything.
+        trigger = CustomTrigger()
+        cfg = CustomTriggerConfig(condition="__import__('os').getcwd()")
+        assert asyncio.run(trigger.evaluate({"config": cfg})) is False

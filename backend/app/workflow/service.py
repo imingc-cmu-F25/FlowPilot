@@ -1,6 +1,6 @@
 from datetime import UTC, datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.action.action import ActionStepFactory, StepSpec
 from app.trigger.service import TriggerService
@@ -15,6 +15,7 @@ class CreateWorkflowCommand(BaseModel):
     trigger: TriggerSpec
     steps: list[StepSpec]
     enabled: bool = False
+    max_retries: int = Field(default=0, ge=0, le=10)
 
 
 class UpdateWorkflowCommand(BaseModel):
@@ -24,6 +25,7 @@ class UpdateWorkflowCommand(BaseModel):
     trigger: TriggerSpec | None = None
     steps: list[StepSpec] | None = None
     enabled: bool | None = None
+    max_retries: int | None = Field(default=None, ge=0, le=10)
 
 
 class WorkflowService:
@@ -45,6 +47,7 @@ class WorkflowService:
         for step_spec in cmd.steps:
             b.add_step(step_spec)
         b.set_enabled(cmd.enabled)
+        b.set_max_retries(cmd.max_retries)
         return b.build()
 
     def update_workflow(
@@ -59,6 +62,8 @@ class WorkflowService:
             updates["description"] = cmd.description
         if cmd.enabled is not None:
             updates["enabled"] = cmd.enabled
+        if cmd.max_retries is not None:
+            updates["max_retries"] = cmd.max_retries
 
         if cmd.trigger is not None:
             updates["trigger"] = self._trigger_service.build_config(cmd.trigger)

@@ -147,6 +147,7 @@ class WorkflowRepository:
                 description=wf.description,
                 status=str(wf.status),
                 enabled=wf.enabled,
+                max_retries=wf.max_retries,
                 created_at=wf.created_at,
                 updated_at=wf.updated_at,
             ))
@@ -156,6 +157,7 @@ class WorkflowRepository:
             orm.description = wf.description
             orm.status = str(wf.status)
             orm.enabled = wf.enabled
+            orm.max_retries = wf.max_retries
             orm.updated_at = wf.updated_at
 
     def _upsert_trigger(self, wf: WorkflowDefinition) -> None:
@@ -212,6 +214,10 @@ class WorkflowRepository:
             description=wf_orm.description,
             status=wf_orm.status,
             enabled=wf_orm.enabled,
+            # getattr so rows written before the column existed (SQLite dev
+            # DBs) still load as max_retries=0 instead of crashing on a
+            # missing attribute during the additive migration window.
+            max_retries=getattr(wf_orm, "max_retries", 0) or 0,
             trigger=trigger,
             steps=steps,
             created_at=wf_orm.created_at,

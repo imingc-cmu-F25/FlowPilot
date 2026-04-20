@@ -93,6 +93,7 @@ export function WorkflowBuilderPage() {
 
   const [workflowName, setWorkflowName] = useState("");
   const [isEnabled, setIsEnabled] = useState(true);
+  const [maxRetries, setMaxRetries] = useState(0);
   const [selectedNode, setSelectedNode] = useState<WorkflowNode | null>(null);
   const [showAIChat, setShowAIChat] = useState(false);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>(INITIAL_CHAT);
@@ -335,6 +336,9 @@ export function WorkflowBuilderPage() {
         if (cancelled) return;
         setWorkflowName(wf.name);
         setIsEnabled(wf.enabled);
+        setMaxRetries(
+          typeof wf.max_retries === "number" ? wf.max_retries : 0,
+        );
         setNodes(mapWorkflowToNodes(wf));
       } catch (e) {
         if (cancelled) return;
@@ -557,6 +561,7 @@ export function WorkflowBuilderPage() {
         await updateWorkflow(id, {
           name: trimmedName,
           enabled: isEnabled,
+          max_retries: maxRetries,
           trigger,
           steps,
         });
@@ -566,6 +571,7 @@ export function WorkflowBuilderPage() {
           owner_name: getStoredUsername() ?? "alice",
           name: trimmedName,
           enabled: isEnabled,
+          max_retries: maxRetries,
           trigger,
           steps,
         });
@@ -655,9 +661,11 @@ export function WorkflowBuilderPage() {
         <BuilderToolbar
           workflowName={workflowName}
           isEnabled={isEnabled}
+          maxRetries={maxRetries}
           showAIChat={showAIChat}
           onNameChange={setWorkflowName}
           onEnabledChange={setIsEnabled}
+          onMaxRetriesChange={setMaxRetries}
           onToggleAIChat={() => setShowAIChat(!showAIChat)}
           onSave={handleSave}
           saving={saving}
