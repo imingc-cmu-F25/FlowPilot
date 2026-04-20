@@ -21,8 +21,8 @@ class TriggerService:
         trigger_type: str,
         enqueue: bool = True,
         max_retries: int = 0,
+        trigger_context: dict | None = None,
     ) -> WorkflowRun:
-    
         if self._run_repo is None:
             raise RuntimeError("run_repo is required for event emission")
 
@@ -31,6 +31,7 @@ class TriggerService:
             status=RunStatus.PENDING,
             trigger_type=trigger_type,
             max_retries=max_retries,
+            trigger_context=trigger_context,
         )
 
         created = self._run_repo.create(run)

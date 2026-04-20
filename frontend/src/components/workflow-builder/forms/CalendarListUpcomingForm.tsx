@@ -1,4 +1,5 @@
 import type { CalendarListUpcomingActionConfig } from "../nodeConfig";
+import { HintDL, HintIntro, HintItem, HintPanel } from "./hintPanel";
 
 interface Props {
   config: CalendarListUpcomingActionConfig;
@@ -94,47 +95,23 @@ export function CalendarListUpcomingForm({ config, onChange }: Props) {
         />
       </div>
 
-      <div className="rounded-lg border border-blue-100 bg-blue-50 p-3 text-xs text-blue-900">
-        <p className="mb-1 font-semibold">
-          How to use the result in the next step
-        </p>
-        <p className="mb-2">
+      <HintPanel summary="How to use the result in the next step">
+        <HintIntro>
           Drop these into a Send Email body / subject or an API Call URL /
           body:
-        </p>
-        <dl className="space-y-2">
-          <div>
-            <dt>
-              <code className="inline-block max-w-full break-all rounded bg-blue-100 px-1 py-0.5 font-mono">
-                {"{{previous_output.agenda_text}}"}
-              </code>
-            </dt>
-            <dd className="mt-0.5 text-blue-800">
-              Pre-rendered bullet list, ideal for email bodies.
-            </dd>
-          </div>
-          <div>
-            <dt>
-              <code className="inline-block max-w-full break-all rounded bg-blue-100 px-1 py-0.5 font-mono">
-                {"{{previous_output.count}}"}
-              </code>
-            </dt>
-            <dd className="mt-0.5 text-blue-800">
-              Number of events returned.
-            </dd>
-          </div>
-          <div>
-            <dt>
-              <code className="inline-block max-w-full break-all rounded bg-blue-100 px-1 py-0.5 font-mono">
-                {"{{previous_output.events}}"}
-              </code>
-            </dt>
-            <dd className="mt-0.5 text-blue-800">
-              Structured list (auto-rendered as bullets of titles).
-            </dd>
-          </div>
-        </dl>
-      </div>
+        </HintIntro>
+        <HintDL>
+          <HintItem codes={["{{previous_output.agenda_text}}"]}>
+            Pre-rendered bullet list, ideal for email bodies.
+          </HintItem>
+          <HintItem codes={["{{previous_output.count}}"]}>
+            Number of events returned.
+          </HintItem>
+          <HintItem codes={["{{previous_output.events}}"]}>
+            Structured list (auto-rendered as bullets of titles).
+          </HintItem>
+        </HintDL>
+      </HintPanel>
     </div>
   );
 }

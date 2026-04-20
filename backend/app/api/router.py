@@ -1,8 +1,12 @@
+import json
 import logging
+import re
 from datetime import datetime
+from urllib.parse import parse_qs
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -23,8 +27,11 @@ from app.reporting.service import make_reporting_service
 from app.suggestion.base import UserInput
 from app.suggestion.repo import SuggestionRepository
 from app.suggestion.service import SuggestionService
+from app.trigger.customTrigger import AVAILABLE_VARIABLES, dry_run_condition
 from app.trigger.service import TriggerService
+from app.trigger.triggerConfig import WebhookTriggerConfig
 from app.trigger.triggerRegistry import TriggerRegistry
+from app.trigger.webhook_auth import verify_webhook_auth
 from app.user.repo import UserRepository
 from app.workflow.repo import WorkflowRepository
 from app.workflow.run import RunStatus, WorkflowRun
@@ -36,11 +43,58 @@ from app.workflow.service import (
     make_workflow_service,
 )
 from app.workflow.validator import validate_workflow
-from app.workflow.workflow import WorkflowStatus
+from app.workflow.workflow import WorkflowDefinition, WorkflowStatus
 
 logger = logging.getLogger(__name__)
 
 api_router = APIRouter()
+
+
+def _guard_webhook_path_unique(
+    db: Session,
+    wf: WorkflowDefinition,
+    *,
+    exclude_workflow_id: UUID | None,
+) -> None:
+    """Reject the save if another enabled webhook workflow already owns
+    the same (path, method). Disabled workflows are ignored — they
+    don't route HTTP traffic so they can't shadow anyone.
+
+    Raises HTTPException(409) with a structured body the builder UI
+    can display inline next to the ``path`` input. The check is a
+    no-op for non-webhook triggers and for workflows saved as
+    disabled — a collision only matters at the moment two workflows
+    would both fire for the same URL.
+    """
+    if not wf.enabled:
+        return
+    trigger = wf.trigger
+    if not isinstance(trigger, WebhookTriggerConfig):
+        return
+    conflict = WorkflowRepository(db).find_enabled_webhook_conflict(
+        path=trigger.path,
+        method=trigger.method,
+        exclude_workflow_id=exclude_workflow_id,
+    )
+    if conflict is None:
+        return
+    raise HTTPException(
+        status_code=409,
+        detail={
+            "message": (
+                f"Another enabled workflow already listens on "
+                f"{trigger.method.upper()} {trigger.path}. Pick a different path or "
+                f"disable the other workflow first."
+            ),
+            "errors": [
+                {
+                    "field": "trigger.path",
+                    "message": "Path already in use by another enabled webhook workflow",
+                }
+            ],
+            "conflicting_workflow_id": str(conflict),
+        },
+    )
 
 
 def _format_validation_errors(exc: ValidationError) -> dict:
@@ -106,8 +160,11 @@ def create_workflow(
                 },
             )
         wf = svc.create_workflow(cmd)
+        _guard_webhook_path_unique(db, wf, exclude_workflow_id=None)
         return WorkflowRepository(db).save(wf)
-    
+
+    except HTTPException:
+        raise
     except (ValidationError, ValueError) as exc:
         if isinstance(exc, ValidationError):
             raise HTTPException(422, detail=_format_validation_errors(exc))
@@ -145,8 +202,11 @@ def update_workflow(
 
     try:
         updated = svc.update_workflow(existing, cmd)
+        _guard_webhook_path_unique(db, updated, exclude_workflow_id=wf_id)
         return repo.save(updated)
-    
+
+    except HTTPException:
+        raise
     except (ValidationError, ValueError) as exc:
         if isinstance(exc, ValidationError):
             raise HTTPException(422, detail=_format_validation_errors(exc))
@@ -285,6 +345,185 @@ def create_workflow_run(
     return {"run_id": str(created.run_id), "status": created.status.value, "enqueued": body.enqueue}
 
 # Webhook
+# Cap on body size we're willing to persist onto workflow_runs.trigger_context.
+# Anything beyond this gets its ``body_text`` truncated; the parsed
+# ``body`` dict is still attempted because most legitimate webhooks
+# (Slack slash commands, GitHub pushes under typical limits) sit well
+# below this. Keeps rogue callers from smuggling MB-scale blobs into
+# the DB through the webhook ingress.
+_WEBHOOK_MAX_BODY_BYTES = 64 * 1024
+
+# Headers we never echo into workflow_runs.trigger_context — they
+# either carry credentials we don't want sitting in the logs table
+# or aren't useful as template inputs.
+_REDACTED_HEADERS = frozenset({"authorization", "cookie", "proxy-authorization"})
+
+
+# ---------------------------------------------------------------------------
+# Free-form text → structured fields
+# ---------------------------------------------------------------------------
+#
+# Slack slash commands drop the whole argument list into a single ``text``
+# field (e.g. ``/block focus 30min`` → ``text="focus 30min"``). Users want
+# "the event length is however long they typed", so we extract a duration
+# once at ingress and surface it as ``previous_output.parsed.*``. Keeping
+# the regex tiny (m/min/minute, h/hr/hour, d/day) means the grammar is
+# easy to audit and we don't accidentally grow a natural-language parser.
+_TEXT_DURATION_RE = re.compile(
+    r"(\d+)\s*(minutes?|mins?|m|hours?|hrs?|h|days?|d)\b",
+    re.IGNORECASE,
+)
+
+_UNIT_NORMALIZE = {
+    "m": "m", "min": "m", "mins": "m", "minute": "m", "minutes": "m",
+    "h": "h", "hr": "h", "hrs": "h", "hour": "h", "hours": "h",
+    "d": "d", "day": "d", "days": "d",
+}
+
+# When the Slack ``text`` field has no duration we still want the workflow
+# to produce a sensibly-scoped event so a misconfigured slash command
+# doesn't silently crash the Calendar step. 30 minutes matches the
+# default ``defaultCalendarAction`` shape (``start+30m``) so behaviour is
+# consistent whether the user customises the end field or not.
+_DEFAULT_DURATION_MINUTES = 30
+
+
+def _parse_text_duration(text: str) -> dict:
+    """Extract the first ``<N><unit>`` duration out of free-form text.
+
+    Returns a dict with stable keys regardless of whether a duration was
+    found, so downstream templates can reference
+    ``previous_output.parsed.duration`` unconditionally:
+
+    * ``duration``         — token form accepted by the calendar
+      relative-time resolver (``"30m"``, ``"2h"``, ``"1d"``). Falls back
+      to ``"30m"`` if no match, so ``start+{{previous_output.parsed.duration}}``
+      always resolves to a valid end time in the demo.
+    * ``duration_minutes`` — integer minutes for human-readable templates
+      (emails, logs). Falls back to ``30``.
+    * ``subject``          — original text with the duration fragment
+      stripped and whitespace collapsed. Empty if the original was empty.
+    * ``has_duration``     — whether a match was found. Useful for
+      builder hints / tests that want to tell "defaulted" apart from
+      "explicitly 30m".
+    """
+    base = text or ""
+    match = _TEXT_DURATION_RE.search(base)
+    if match is None:
+        return {
+            "duration": f"{_DEFAULT_DURATION_MINUTES}m",
+            "duration_minutes": _DEFAULT_DURATION_MINUTES,
+            "subject": base.strip(),
+            "has_duration": False,
+        }
+
+    amount = int(match.group(1))
+    unit = _UNIT_NORMALIZE[match.group(2).lower()]
+    minutes_per_unit = {"m": 1, "h": 60, "d": 60 * 24}[unit]
+    stripped = (base[: match.start()] + base[match.end():]).strip()
+    stripped = re.sub(r"\s+", " ", stripped)
+    return {
+        "duration": f"{amount}{unit}",
+        "duration_minutes": amount * minutes_per_unit,
+        "subject": stripped,
+        "has_duration": True,
+    }
+
+
+def _parse_webhook_body(raw_body: bytes, content_type: str) -> dict | list | str | None:
+    """Best-effort parse of the webhook payload into a template-friendly shape.
+
+    - application/json          → parsed JSON
+    - application/x-www-form-urlencoded → flat dict (single values unwrapped)
+    - anything else             → return None; callers rely on body_text instead
+
+    A decode failure returns None rather than raising so that a
+    mis-declared Content-Type doesn't take down the whole ingress.
+    """
+    if not raw_body:
+        return None
+
+    ct = content_type.lower()
+    if "application/json" in ct:
+        try:
+            return json.loads(raw_body.decode("utf-8", errors="replace"))
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            return None
+
+    if "application/x-www-form-urlencoded" in ct:
+        try:
+            decoded = raw_body.decode("utf-8", errors="replace")
+        except UnicodeDecodeError:
+            return None
+        pairs = parse_qs(decoded, keep_blank_values=True)
+        # Slack slash commands only ever have scalar values, but
+        # generic form posts can have repeated keys (e.g. checkbox[]).
+        # Keep lists where they appear so no data is silently dropped.
+        return {k: (v[0] if len(v) == 1 else v) for k, v in pairs.items()}
+
+    return None
+
+
+def _build_trigger_context(
+    *,
+    normalized_path: str,
+    method: str,
+    headers: dict[str, str],
+    query: dict[str, str],
+    raw_body: bytes,
+    content_type: str,
+) -> dict:
+    """Assemble the dict stashed on workflow_runs.trigger_context.
+
+    The engine seeds the first step's ``previous_output`` with this,
+    so template keys like {{previous_output.body.text}} and
+    {{previous_output.headers.x-github-event}} resolve from here.
+    """
+    parsed_body = _parse_webhook_body(raw_body, content_type)
+    body_text = raw_body[:_WEBHOOK_MAX_BODY_BYTES].decode("utf-8", errors="replace")
+
+    # Only derive ``parsed`` when the payload exposes a ``text`` field
+    # (Slack slash commands, and anything that adopts the same shape).
+    # For arbitrary JSON webhooks the keys here would be meaningless, so
+    # we omit them rather than ship misleading defaults.
+    parsed: dict = {}
+    if isinstance(parsed_body, dict) and isinstance(parsed_body.get("text"), str):
+        parsed = _parse_text_duration(parsed_body["text"])
+
+    return {
+        "source": "webhook",
+        "path": normalized_path,
+        "method": method,
+        "content_type": content_type,
+        "headers": {k: v for k, v in headers.items() if k not in _REDACTED_HEADERS},
+        "query": query,
+        "body": parsed_body if parsed_body is not None else {},
+        "body_text": body_text,
+        "parsed": parsed,
+    }
+
+
+def _passes_event_filter(cfg: WebhookTriggerConfig, headers: dict[str, str]) -> bool:
+    """``event_filter`` is matched against X-Event-Type. Empty means accept any."""
+    wanted = (cfg.event_filter or "").strip()
+    if not wanted:
+        return True
+    return headers.get("x-event-type", "") == wanted
+
+
+def _passes_header_filters(cfg: WebhookTriggerConfig, headers: dict[str, str]) -> bool:
+    """All configured header key/value pairs must match (case-insensitive key)."""
+    for key, expected in (cfg.header_filters or {}).items():
+        if headers.get(key.lower(), "") != expected:
+            return False
+    return True
+
+
+def _slack_request(headers: dict[str, str]) -> bool:
+    """Heuristic: Slack tags every outbound request with x-slack-signature."""
+    return "x-slack-signature" in headers
+
+
 @api_router.api_route(
     "/hooks/{hook_path:path}",
     methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
@@ -295,34 +534,111 @@ async def ingest_webhook(
     request: Request,
     db: Session = Depends(get_db),
 ):
-    """
-    Minimal webhook ingest endpoint:
-    1) match enabled workflows by webhook path/method
-    2) emit workflow runs
-    3) enqueue execution
+    """Webhook ingress.
+
+    Per request:
+    1. read body (bounded) + normalise headers / query
+    2. find enabled workflows with a matching (path, method) trigger
+    3. for each match, verify secret_ref and apply event/header filters
+    4. emit one run per surviving workflow, seeding its trigger_context
+       with the captured payload so step 1 templates can use it
+    5. respond with a caller-friendly shape (Slack gets an ephemeral
+       reply; everyone else gets a JSON summary)
     """
     normalized_path = "/hooks/" + hook_path.lstrip("/")
     method = request.method.upper()
+
+    # Read once — FastAPI caches the body on the request object, but
+    # we still want the exact bytes for HMAC verification.
+    raw_body = await request.body()
+    if len(raw_body) > _WEBHOOK_MAX_BODY_BYTES:
+        # Truncate for storage but keep full bytes for signature
+        # verification, otherwise a padded request would fail HMAC.
+        stored_body = raw_body[:_WEBHOOK_MAX_BODY_BYTES]
+    else:
+        stored_body = raw_body
+
+    headers = {k.lower(): v for k, v in request.headers.items()}
+    query = dict(request.query_params)
+    content_type = headers.get("content-type", "")
+
+    trigger_context = _build_trigger_context(
+        normalized_path=normalized_path,
+        method=method,
+        headers=headers,
+        query=query,
+        raw_body=stored_body,
+        content_type=content_type,
+    )
 
     wf_repo = WorkflowRepository(db)
     matched = wf_repo.list_enabled_for_webhook(normalized_path, method)
 
     trigger_service = TriggerService(run_repo=WorkflowRunRepository(db))
     emitted = 0
+    skipped_auth = 0
+    skipped_filter = 0
+
     for wf in matched:
+        cfg = wf.trigger
+        if not isinstance(cfg, WebhookTriggerConfig):
+            continue
+
+        auth = verify_webhook_auth(
+            secret_ref=cfg.secret_ref,
+            raw_body=raw_body,
+            headers=headers,
+        )
+        if not auth.ok:
+            logger.info(
+                "webhook auth rejected workflow=%s path=%s reason=%s",
+                wf.workflow_id,
+                normalized_path,
+                auth.reason,
+            )
+            skipped_auth += 1
+            continue
+
+        if not _passes_event_filter(cfg, headers):
+            skipped_filter += 1
+            continue
+        if not _passes_header_filters(cfg, headers):
+            skipped_filter += 1
+            continue
+
         trigger_service.emit_workflow_event(
             workflow_id=wf.workflow_id,
             trigger_type="webhook",
             enqueue=True,
             max_retries=wf.max_retries,
+            trigger_context=trigger_context,
         )
         emitted += 1
+
+    # Every match rejected solely on auth → surface that clearly so
+    # misconfigured Slack / HMAC secrets are noisy instead of silent.
+    if matched and emitted == 0 and skipped_auth > 0 and skipped_filter == 0:
+        raise HTTPException(status_code=401, detail="webhook signature verification failed")
+
+    if _slack_request(headers):
+        # Slack slash commands display the response body to the user
+        # if ``response_type`` is set. Using ``ephemeral`` means only
+        # the caller sees it — the channel stays clean.
+        if emitted > 0:
+            text = f"FlowPilot: started {emitted} workflow(s) ✓"
+        elif skipped_filter > 0:
+            text = "FlowPilot: request received but no matching workflow accepted it (check event/header filters)."
+        else:
+            text = "FlowPilot: no workflow is listening on this path/method."
+        return JSONResponse({"response_type": "ephemeral", "text": text})
 
     return {
         "path": normalized_path,
         "method": method,
         "matched_workflows": len(matched),
         "emitted_runs": emitted,
+        "skipped_auth": skipped_auth,
+        "skipped_filter": skipped_filter,
     }
 
 
@@ -335,6 +651,36 @@ def list_actions():
 @api_router.get("/registry/triggers")
 def list_triggers():
     return TriggerRegistry.list_schemas()
+
+
+class CustomTriggerDryRunBody(BaseModel):
+    """Input for POST /triggers/custom/evaluate (builder live preview)."""
+
+    condition: str = Field(..., max_length=500)
+    source: str = Field(default="event_payload", max_length=100)
+    timezone: str = Field(default="UTC", max_length=100)
+
+
+@api_router.post("/triggers/custom/evaluate", tags=["triggers"])
+def evaluate_custom_trigger(body: CustomTriggerDryRunBody):
+    """Evaluate a custom-trigger condition **right now** and return the verdict.
+
+    Used by the workflow builder to show a live "would this fire?" preview
+    and to surface syntax / whitelist errors inline instead of the user
+    having to save the workflow and watch the dispatch loop silently
+    refuse to fire. The dispatch loop itself swallows evaluation errors
+    (by design); this endpoint is the escape hatch that exposes them.
+    """
+    report = dry_run_condition(body.condition, body.source, body.timezone)
+    return {
+        **report,
+        # Attach the catalogue so the builder can re-render the hint
+        # block without a second request. Cheap (9 entries) and keeps
+        # the list canonical on the backend.
+        "available_variables": [
+            {"name": n, "description": d} for n, d in AVAILABLE_VARIABLES
+        ],
+    }
 
 
 # Reports

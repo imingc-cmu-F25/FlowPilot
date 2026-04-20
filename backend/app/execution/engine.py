@@ -63,7 +63,19 @@ class ExecutionEngine:
             self._db.commit()
             return
 
-        previous_output: dict | None = None
+        # ``trigger_context`` is the original payload that fired the
+        # run (webhook body / headers, or None for cron / custom
+        # triggers). Two separate exposures on purpose:
+        #
+        #   * As the first step's ``previous_output`` — keeps the
+        #     zero-transform "webhook → action" shape users already
+        #     have in the builder working.
+        #   * As ``{{trigger.*}}`` on *every* step via
+        #     build_execution_inputs — means inserting an HTTP / List
+        #     Events step between the trigger and a Calendar step no
+        #     longer clobbers access to Slack's parsed payload.
+        trigger_context: dict | None = run.trigger_context or None
+        previous_output: dict | None = trigger_context
         for step in steps:
             while True:
                 started = datetime.now(UTC)
@@ -75,6 +87,7 @@ class ExecutionEngine:
                         workflow_id=run.workflow_id,
                         previous_output=previous_output,
                         owner_name=wf.owner_name,
+                        trigger_context=trigger_context,
                     )
                     # Dispatch via the ActionService indirection: in-process
                     # when action_worker_enabled is false (dev / tests), or

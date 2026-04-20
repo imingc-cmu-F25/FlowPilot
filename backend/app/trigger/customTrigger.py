@@ -23,8 +23,9 @@ demo without dragging in a full template engine or a DSL.
 from __future__ import annotations
 
 import ast
-from datetime import UTC, datetime
+from datetime import UTC, datetime, tzinfo
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from app.trigger.trigger import BaseTrigger, TriggerSchema
 from app.trigger.triggerConfig import CustomTriggerConfig
@@ -147,13 +148,50 @@ def _safe_eval(expr: str, env: dict[str, Any]) -> Any:
     return _eval_node(tree, env)
 
 
+# Public catalogue of names the evaluator exposes. The API's dry-run
+# endpoint and the frontend hint block both read this so we don't drift
+# the docs vs the runtime env. Keep entries terse — the form UI lists
+# them verbatim.
+AVAILABLE_VARIABLES: tuple[tuple[str, str], ...] = (
+    ("hour", "Current hour in the trigger's timezone, 0–23"),
+    ("minute", "Current minute in the trigger's timezone, 0–59"),
+    ("weekday", "Day of week (trigger TZ), Monday=0 … Sunday=6"),
+    ("day", "Day of month (trigger TZ), 1–31"),
+    ("month", "Month number (trigger TZ), 1–12"),
+    ("year", "Full year (trigger TZ), e.g. 2026"),
+    ("now", "Current time in the trigger's timezone, ISO-8601"),
+    ("timezone", "The IANA timezone string, e.g. 'Asia/Taipei'"),
+    ("source", "Value of the trigger's `source` config field"),
+    ("true / false", "Boolean literals"),
+)
+
+
+def _resolve_tz(name: str | None) -> tuple[tzinfo, str]:
+    """Return a (tzinfo, resolved_name) pair, falling back to UTC on bad input.
+
+    We do NOT raise when the configured zone is unknown: a user editing
+    their workflow shouldn't see the dispatcher silently stop on typo.
+    The builder UI validates on the frontend; if something invalid still
+    reaches the worker, UTC is the safe default.
+    """
+    candidate = (name or "UTC").strip() or "UTC"
+    try:
+        return ZoneInfo(candidate), candidate
+    except (ZoneInfoNotFoundError, ValueError):
+        return UTC, "UTC"
+
+
 def _build_env(config: CustomTriggerConfig) -> dict[str, Any]:
     """Build the whitelisted name→value environment exposed to user expressions.
 
     Kept deliberately flat and side-effect free: no callables, no objects with
     dunder methods that could be abused, just primitives and simple strings.
+    Time-related names are computed in ``config.timezone`` (defaults to UTC),
+    matching the way TimeTriggerConfig interprets its stored moment so users
+    don't have to mentally convert zones when moving between trigger types.
     """
-    now = datetime.now(UTC)
+    tz, resolved = _resolve_tz(getattr(config, "timezone", None))
+    now = datetime.now(tz)
     return {
         "true": True,
         "false": False,
@@ -167,6 +205,7 @@ def _build_env(config: CustomTriggerConfig) -> dict[str, Any]:
         "day": now.day,
         "month": now.month,
         "year": now.year,
+        "timezone": resolved,
         "source": config.source,
     }
 
@@ -230,3 +269,62 @@ class CustomTrigger(BaseTrigger):
             # We intentionally swallow so a bad condition in one workflow
             # can't starve the dispatch loop for every other workflow.
             return False
+
+
+def dry_run_condition(
+    condition: str,
+    source: str = "event_payload",
+    timezone: str = "UTC",
+) -> dict[str, Any]:
+    """Evaluate *condition* with the live clock and return a debug report.
+
+    Shape: ``{ok: bool, value: bool | None, error: str | None, env: dict}``.
+    ``ok=True`` means the expression parsed and evaluated cleanly; ``value``
+    is the coerced bool outcome. ``ok=False`` means parsing or evaluation
+    failed and ``error`` contains a human-readable reason — we want this
+    to feed the builder UI directly, not the Celery dispatch loop, so
+    here we *do* surface the failure instead of silently returning False.
+
+    ``env`` echoes the variables that were visible to the expression so
+    the UI can show "right now, weekday=2, hour=14, …" alongside the
+    verdict. Time-related variables are evaluated in ``timezone`` (IANA
+    zone); unknown zones fall back to UTC.
+    """
+    expr = (condition or "").strip()
+    cfg = CustomTriggerConfig(
+        condition=expr or "true", source=source, timezone=timezone or "UTC"
+    )
+    env = _build_env(cfg)
+    visible_env = {
+        k: v
+        for k, v in env.items()
+        # Hide Python-style aliases (True/False/None) from the surface
+        # report; their lowercase twins are already there.
+        if k not in {"True", "False", "None"}
+    }
+    if not expr:
+        return {
+            "ok": False,
+            "value": None,
+            "error": "Condition is empty.",
+            "env": visible_env,
+        }
+    try:
+        result = _safe_eval(expr, env)
+    except _UnsafeExpressionError as exc:
+        return {"ok": False, "value": None, "error": str(exc), "env": visible_env}
+    except SyntaxError as exc:
+        return {
+            "ok": False,
+            "value": None,
+            "error": f"Syntax error: {exc.msg}",
+            "env": visible_env,
+        }
+    except (TypeError, ValueError) as exc:
+        return {"ok": False, "value": None, "error": str(exc), "env": visible_env}
+    return {
+        "ok": True,
+        "value": bool(result),
+        "error": None,
+        "env": visible_env,
+    }

@@ -67,6 +67,7 @@ class CustomTriggerFactory(TriggerFactory):
             condition=spec.parameters.get("condition", ""),
             source=spec.parameters.get("source", "event_payload"),
             description=spec.parameters.get("description", ""),
+            timezone=spec.parameters.get("timezone", "UTC") or "UTC",
         )
         config.validate_config()
         return config

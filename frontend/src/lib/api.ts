@@ -285,6 +285,33 @@ export type WorkflowStepRun = {
   error: string | null;
 };
 
+// Custom trigger dry-run: evaluates a condition string against the backend's
+// live clock and whitelist, so the builder can show a "would this fire right
+// now?" preview and surface syntax / unknown-name errors inline instead of
+// letting the dispatch loop silently swallow them.
+export type CustomTriggerDryRunResponse = {
+  ok: boolean;
+  value: boolean | null;
+  error: string | null;
+  env: Record<string, string | number | boolean | null>;
+  available_variables: { name: string; description: string }[];
+};
+
+export async function evaluateCustomCondition(
+  condition: string,
+  source: string = "event_payload",
+  timezone: string = "UTC",
+): Promise<CustomTriggerDryRunResponse> {
+  const res = await apiFetch(`${API_BASE}/triggers/custom/evaluate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ condition, source, timezone }),
+  });
+  const data = await parseBody(res);
+  if (!res.ok) throw new Error(extractDetail(data) ?? res.statusText);
+  return data as CustomTriggerDryRunResponse;
+}
+
 export async function triggerWorkflowRun(
   workflowId: string,
 ): Promise<{ run_id: string; status: string }> {

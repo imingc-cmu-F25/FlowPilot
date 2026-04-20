@@ -28,3 +28,8 @@ class WorkflowRunORM(Base):
     output: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     retry_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     max_retries: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # Captured trigger payload (webhook body / headers / query).
+    # Nullable because older rows and non-webhook triggers don't have one.
+    # Bounded in the router layer before write (webhook.MAX_BODY_BYTES)
+    # so the column can't be used to smuggle large blobs into the DB.
+    trigger_context: Mapped[dict | None] = mapped_column(JSON, nullable=True)

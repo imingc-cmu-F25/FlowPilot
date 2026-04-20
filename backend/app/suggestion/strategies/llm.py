@@ -391,6 +391,7 @@ def _validate_and_fix(draft: dict) -> dict:
         trigger.setdefault("condition", "true")
         trigger.setdefault("source", "event_payload")
         trigger.setdefault("description", "")
+        trigger.setdefault("timezone", "UTC")
     trigger["type"] = t_type
     draft["trigger"] = trigger
 

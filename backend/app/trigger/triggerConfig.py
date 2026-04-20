@@ -53,12 +53,22 @@ class WebhookTriggerConfig(BaseModel):
             raise ValueError(f"Unsupported HTTP method: {self.method}")
 
 class CustomTriggerConfig(BaseModel):
-    """User-defined condition trigger evaluated against runtime context."""
+    """User-defined condition trigger evaluated against runtime context.
+
+    ``timezone`` is an IANA zone (e.g. "Asia/Taipei"). The evaluator
+    resolves time-related names (``hour``, ``minute``, ``weekday`` …)
+    in this zone, matching the way TimeTriggerConfig interprets its
+    stored wall-clock moment. Defaults to UTC both for backwards
+    compatibility with pre-existing rows and because the dispatcher
+    runs in UTC — users are expected to pick their own zone in the
+    builder UI (which pre-fills browserTimezone()).
+    """
     type: Literal[TriggerType.CUSTOM] = TriggerType.CUSTOM
     trigger_id: UUID = Field(default_factory=uuid4)
     condition: str
     source: str = "event_payload"
     description: str = ""
+    timezone: str = "UTC"
 
     def validate_config(self) -> None:
         if not self.condition.strip():

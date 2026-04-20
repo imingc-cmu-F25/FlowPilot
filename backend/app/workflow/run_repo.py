@@ -30,6 +30,7 @@ class WorkflowRunRepository:
             output=run.output,
             retry_count=run.retry_count,
             max_retries=run.max_retries,
+            trigger_context=run.trigger_context,
         )
         self._db.add(orm)
         self._db.flush()
@@ -234,4 +235,5 @@ class WorkflowRunRepository:
             output=orm.output,
             retry_count=getattr(orm, "retry_count", 0),
             max_retries=getattr(orm, "max_retries", 0),
+            trigger_context=getattr(orm, "trigger_context", None),
         )

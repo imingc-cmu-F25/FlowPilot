@@ -198,6 +198,12 @@ export function WorkflowBuilderPage() {
           condition: String((wf.trigger as { condition?: string }).condition ?? ""),
           source: String((wf.trigger as { source?: string }).source ?? "event_payload"),
           description: String((wf.trigger as { description?: string }).description ?? ""),
+          // Persisted rows from before the timezone field existed default
+          // to UTC on the backend; preserve whatever the user picked on
+          // subsequent edits without silently bouncing to browser TZ.
+          timezone: String(
+            (wf.trigger as { timezone?: string }).timezone ?? "UTC",
+          ),
         },
       });
     } else if (wf.trigger.type === "calendar_event") {
@@ -472,6 +478,7 @@ export function WorkflowBuilderPage() {
                 condition: String(triggerCfg.condition ?? ""),
                 source: String(triggerCfg.source ?? "event_payload"),
                 description: String(triggerCfg.description ?? ""),
+                timezone: String(triggerCfg.timezone ?? "UTC"),
               },
             }
           : triggerNode.category === "calendar_event"
