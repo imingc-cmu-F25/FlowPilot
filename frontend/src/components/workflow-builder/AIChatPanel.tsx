@@ -1,6 +1,10 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Sparkles, X, Send, Wand2 } from "lucide-react";
-import type { SuggestionAnalysis, WorkflowDefinition } from "../../lib/api";
+import type {
+  PendingQuestion,
+  SuggestionAnalysis,
+  WorkflowDefinition,
+} from "../../lib/api";
 
 export interface ChatMessage {
   id: string;
@@ -9,6 +13,7 @@ export interface ChatMessage {
   workflowDraft?: WorkflowDefinition | null;
   suggestionId?: string;
   analysis?: SuggestionAnalysis | null;
+  pendingQuestions?: PendingQuestion[];
 }
 
 interface AIChatPanelProps {
@@ -18,7 +23,90 @@ interface AIChatPanelProps {
   onSend: () => void;
   onClose: () => void;
   onApplyDraft?: (draft: WorkflowDefinition, suggestionId?: string) => void;
+  onAnswer?: (
+    suggestionId: string,
+    answers: Record<string, string>,
+  ) => Promise<void> | void;
   loading?: boolean;
+}
+
+function PendingQuestionsForm({
+  suggestionId,
+  questions,
+  onSubmit,
+}: {
+  suggestionId: string;
+  questions: PendingQuestion[];
+  onSubmit: (answers: Record<string, string>) => Promise<void> | void;
+}) {
+  const [values, setValues] = useState<Record<string, string>>(() =>
+    Object.fromEntries(questions.map((q) => [q.field, q.suggested_value || ""])),
+  );
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSubmit = async (
+    e: React.FormEvent<HTMLFormElement>,
+  ): Promise<void> => {
+    e.preventDefault();
+    // Require every field to be non-empty before submitting.
+    const missing = questions.filter((q) => !values[q.field]?.trim());
+    if (missing.length > 0) {
+      setError(`Please answer: ${missing.map((q) => q.field).join(", ")}`);
+      return;
+    }
+    setError(null);
+    setSubmitting(true);
+    try {
+      await onSubmit(values);
+    } catch (e2) {
+      setError(e2 instanceof Error ? e2.message : "Failed to submit answers.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <form
+      onSubmit={handleSubmit}
+      data-suggestion-id={suggestionId}
+      className="space-y-3 rounded-lg border border-amber-200 bg-amber-50 p-3"
+    >
+      <p className="text-xs font-semibold text-amber-900">
+        I need a bit more info before I can finalize the workflow:
+      </p>
+      {questions.map((q) => (
+        <div key={q.field} className="space-y-1">
+          <label className="block text-xs text-amber-900">
+            {q.question}
+          </label>
+          <input
+            type="text"
+            value={values[q.field] ?? ""}
+            placeholder={q.example || ""}
+            onChange={(ev) =>
+              setValues((prev) => ({ ...prev, [q.field]: ev.target.value }))
+            }
+            disabled={submitting}
+            className="w-full rounded-md border border-amber-300 bg-white px-2 py-1 text-xs focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
+          />
+          {q.example && (
+            <p className="text-[10px] text-amber-700/80">e.g. {q.example}</p>
+          )}
+        </div>
+      ))}
+      {error && (
+        <p className="text-xs text-red-700">{error}</p>
+      )}
+      <button
+        type="submit"
+        disabled={submitting}
+        className="inline-flex items-center gap-1 rounded-md bg-amber-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-amber-700 disabled:bg-amber-300"
+      >
+        {submitting ? "Submitting…" : "Continue"}
+      </button>
+    </form>
+  );
 }
 
 export function AIChatPanel({
@@ -28,6 +116,7 @@ export function AIChatPanel({
   onSend,
   onClose,
   onApplyDraft,
+  onAnswer,
   loading = false,
 }: AIChatPanelProps) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -42,7 +131,7 @@ export function AIChatPanel({
   }, [messages, loading]);
 
   return (
-    <div className="flex w-full flex-col border-l border-gray-200 bg-white sm:w-80 md:w-96">
+    <div className="flex h-full w-full flex-col border-l border-gray-200 bg-white sm:w-80 md:w-96">
       <div className="flex items-center justify-between border-b border-gray-200 p-4">
         <div className="flex items-center gap-2">
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-purple-100">
@@ -92,29 +181,45 @@ export function AIChatPanel({
                   </span>
                 </div>
               )}
-              {message.role === "assistant" && message.workflowDraft && (
-                <div className="rounded-lg border border-purple-200 bg-purple-50 p-3">
-                  <p className="mb-2 text-xs font-semibold text-purple-900">
-                    Suggested workflow: {message.workflowDraft.name}
-                  </p>
-                  <p className="mb-2 text-xs text-purple-700">
-                    Trigger: {message.workflowDraft.trigger?.type} •{" "}
-                    {message.workflowDraft.steps?.length ?? 0} step(s)
-                  </p>
-                  <button
-                    onClick={() =>
-                      onApplyDraft?.(
-                        message.workflowDraft!,
-                        message.suggestionId,
-                      )
+              {message.role === "assistant" &&
+                message.suggestionId &&
+                message.pendingQuestions &&
+                message.pendingQuestions.length > 0 && (
+                  <PendingQuestionsForm
+                    suggestionId={message.suggestionId}
+                    questions={message.pendingQuestions}
+                    onSubmit={(answers) =>
+                      onAnswer?.(message.suggestionId!, answers) ??
+                      Promise.resolve()
                     }
-                    className="inline-flex items-center gap-1 rounded-md bg-purple-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-purple-700"
-                  >
-                    <Wand2 className="h-3 w-3" />
-                    Apply to Canvas
-                  </button>
-                </div>
-              )}
+                  />
+                )}
+              {message.role === "assistant" &&
+                message.workflowDraft &&
+                (!message.pendingQuestions ||
+                  message.pendingQuestions.length === 0) && (
+                  <div className="rounded-lg border border-purple-200 bg-purple-50 p-3">
+                    <p className="mb-2 text-xs font-semibold text-purple-900">
+                      Suggested workflow: {message.workflowDraft.name}
+                    </p>
+                    <p className="mb-2 text-xs text-purple-700">
+                      Trigger: {message.workflowDraft.trigger?.type} •{" "}
+                      {message.workflowDraft.steps?.length ?? 0} step(s)
+                    </p>
+                    <button
+                      onClick={() =>
+                        onApplyDraft?.(
+                          message.workflowDraft!,
+                          message.suggestionId,
+                        )
+                      }
+                      className="inline-flex items-center gap-1 rounded-md bg-purple-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-purple-700"
+                    >
+                      <Wand2 className="h-3 w-3" />
+                      Apply to Canvas
+                    </button>
+                  </div>
+                )}
             </div>
           </div>
         ))}

@@ -29,6 +29,7 @@ class SuggestionRepository:
             analysis=analysis.model_dump(mode="json"),
             content=result.content,
             workflow_draft=result.workflow_draft,
+            pending_questions=[q.model_dump() for q in result.pending_questions],
             created_at=datetime.now(UTC),
             accepted_workflow_id=None,
         )

@@ -377,23 +377,61 @@ export async function registerUser(body: {
   return data as AuthResponse;
 }
 
+export type SuggestionInputType =
+  | "automation_request"
+  | "task_plan"
+  | "optimization"
+  | "question"
+  | "other"
+  // Set by the backend service when the guard short-circuits the
+  // pipeline (too short, off-topic, etc.).
+  | "too_short";
+
 export type SuggestionAnalysis = {
   complexity_level: "simple" | "medium" | "complex";
-  input_type: string;
+  input_type: SuggestionInputType;
   confidence: number;
+};
+
+export type SuggestionStrategyUsed =
+  | "rule_based"
+  | "template"
+  | "llm"
+  // Service-injected value; rows with strategy_used="guard" never carry a
+  // workflow_draft and are never marked as accepted.
+  | "guard";
+
+export type PendingQuestion = {
+  field: string;
+  question: string;
+  example: string;
+  suggested_value: string;
 };
 
 export type SuggestionResponse = {
   id: string;
   user_name: string;
   raw_text: string;
-  strategy_used: "rule_based" | "template" | "llm";
+  strategy_used: SuggestionStrategyUsed;
   analysis: SuggestionAnalysis;
   content: string;
   workflow_draft: WorkflowDefinition | null;
+  pending_questions: PendingQuestion[];
   created_at: string;
   accepted_workflow_id: string | null;
 };
+
+function browserTimezone(): string | undefined {
+  // Send the user's IANA timezone (e.g. "America/Los_Angeles") so the
+  // suggestion strategies interpret bare "9 AM" as 9 AM local instead of
+  // 9 AM UTC. Wrapped in try/catch because some sandboxed environments
+  // throw on `Intl.DateTimeFormat()`.
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 export async function createSuggestion(body: {
   raw_text: string;
@@ -402,7 +440,7 @@ export async function createSuggestion(body: {
   const res = await apiFetch(`${API_BASE}/suggestions`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
+    body: JSON.stringify({ ...body, timezone: browserTimezone() }),
   });
   const data = await parseBody(res);
   if (!res.ok) throw new Error(extractDetail(data) ?? res.statusText);
@@ -430,6 +468,23 @@ export async function linkSuggestionToWorkflow(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ workflow_id: workflowId }),
+    },
+  );
+  const data = await parseBody(res);
+  if (!res.ok) throw new Error(extractDetail(data) ?? res.statusText);
+  return data as SuggestionResponse;
+}
+
+export async function answerSuggestion(
+  suggestionId: string,
+  answers: Record<string, unknown>,
+): Promise<SuggestionResponse> {
+  const res = await apiFetch(
+    `${API_BASE}/suggestions/${encodeURIComponent(suggestionId)}/answer`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ answers }),
     },
   );
   const data = await parseBody(res);

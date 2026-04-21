@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.action.action import ActionStepFactory, ActionType, StepSpec
 from app.action.actionRegistry import ActionRegistry
 from app.core.auth import (
     enforce_owner_match,
@@ -27,7 +28,7 @@ from app.reporting.repo import ReportRepository
 from app.reporting.service import make_reporting_service
 from app.suggestion.base import UserInput
 from app.suggestion.repo import SuggestionRepository
-from app.suggestion.service import SuggestionService
+from app.suggestion.service import SuggestionService, detect_pending_questions
 from app.trigger.customTrigger import AVAILABLE_VARIABLES, dry_run_condition
 from app.trigger.service import TriggerService
 from app.trigger.trigger import TriggerSpec, TriggerType
@@ -771,6 +772,11 @@ def generate_report(
 class CreateSuggestionBody(BaseModel):
     raw_text: str = Field(min_length=1)
     user_name: str | None = None
+    # IANA timezone (e.g. "America/Los_Angeles"). Frontend should send
+    # `Intl.DateTimeFormat().resolvedOptions().timeZone`. Used by the
+    # strategies to resolve bare wall-clock times into the right UTC
+    # `trigger_at` instant.
+    timezone: str | None = None
 
 
 def _serialize_suggestion(orm) -> dict:
@@ -782,6 +788,7 @@ def _serialize_suggestion(orm) -> dict:
         "analysis": orm.analysis,
         "content": orm.content,
         "workflow_draft": orm.workflow_draft,
+        "pending_questions": orm.pending_questions or [],
         "created_at": orm.created_at.isoformat() if orm.created_at else None,
         "accepted_workflow_id": (
             str(orm.accepted_workflow_id) if orm.accepted_workflow_id else None
@@ -800,7 +807,11 @@ async def create_suggestion(
     if body.user_name and body.user_name != current_user:
         raise HTTPException(403, detail="Cannot create suggestion for another user")
     service = SuggestionService(db)
-    user_input = UserInput(raw_text=body.raw_text, user_name=current_user)
+    user_input = UserInput(
+        raw_text=body.raw_text,
+        user_name=current_user,
+        timezone=body.timezone,
+    )
     try:
         orm = await service.suggest(user_input)
     except Exception as exc:  # noqa: BLE001
@@ -834,12 +845,46 @@ def get_suggestion(
     return _serialize_suggestion(orm)
 
 
+_TRIGGER_RESERVED_KEYS = {"type", "trigger_id"}
+_STEP_TOP_LEVEL_KEYS = {"action_type", "name", "step_order"}
+
+
+def _normalize_draft_trigger(raw_trigger: dict) -> dict:
+    """Convert the suggestion's flat trigger sub-object into the nested
+    `{type, parameters: {...}}` shape that `/api/workflows` accepts.
+
+    This is the single source of truth for translating draft → API; the
+    frontend's `applyDraftToCanvas` does the same job from the other side.
+    """
+    type_value = raw_trigger.get("type")
+    parameters = {
+        k: v for k, v in raw_trigger.items() if k not in _TRIGGER_RESERVED_KEYS
+    }
+    return {"type": type_value, "parameters": parameters}
+
+
+def _normalize_draft_step(raw_step: dict, fallback_order: int) -> dict:
+    """Same idea as _normalize_draft_trigger, but for an individual step.
+
+    Drafts emit flat steps like
+    `{action_type, name, step_order, to_template, subject_template, ...}`;
+    /api/workflows expects `{action_type, name, step_order, parameters: {...}}`.
+    """
+    parameters = {
+        k: v for k, v in raw_step.items() if k not in _STEP_TOP_LEVEL_KEYS
+    }
+    return {
+        "action_type": raw_step.get("action_type"),
+        "name": raw_step.get("name", f"Step {fallback_order + 1}"),
+        "step_order": raw_step.get("step_order", fallback_order),
+        "parameters": parameters,
+    }
+
+
 def _validate_draft_trigger(draft: dict) -> None:
     """Validate the draft's trigger sub-object, raising 422 on any failure.
 
-    Drafts store `trigger` flat (`{type, trigger_at, ...}`), but the trigger
-    factory expects `TriggerSpec(type, parameters)`. We translate then run
-    the factory's own validate_config(), so a bad cron / past datetime /
+    Reuses the production trigger factory so a bad cron / past datetime /
     unknown type is caught here rather than at /workflows POST time.
     """
     raw = draft.get("trigger") or {}
@@ -850,11 +895,75 @@ def _validate_draft_trigger(draft: dict) -> None:
         trigger_type = TriggerType(type_value)
     except ValueError as exc:
         raise HTTPException(422, detail=f"Unknown trigger type: {type_value}") from exc
-    parameters = {k: v for k, v in raw.items() if k != "type"}
+    normalized = _normalize_draft_trigger(raw)
     try:
-        build_trigger_config(TriggerSpec(type=trigger_type, parameters=parameters))
+        build_trigger_config(
+            TriggerSpec(type=trigger_type, parameters=normalized["parameters"])
+        )
     except (ValidationError, ValueError) as exc:
         raise HTTPException(422, detail=f"Invalid trigger in draft: {exc!s}") from exc
+
+
+def _validate_draft_steps(draft: dict) -> None:
+    """Validate every step in the draft via the real ActionStepFactory.
+
+    Drafts produced by `LLMStrategy` are not schema-checked beyond field
+    defaults, and rule_based / template builders use a flat shape that
+    `/api/workflows` would reject. Running the same factory the API uses
+    catches malformed `action_type` values, missing required fields, and
+    bad parameter types up front — so the user sees an actionable error
+    on accept rather than a confusing 422 on the subsequent
+    POST /api/workflows.
+    """
+    steps = draft.get("steps") or []
+    if not isinstance(steps, list):
+        raise HTTPException(422, detail="Draft 'steps' must be a list")
+    for i, raw_step in enumerate(steps):
+        if not isinstance(raw_step, dict):
+            raise HTTPException(422, detail=f"Step {i} is not an object")
+        action_type_value = raw_step.get("action_type")
+        if not action_type_value:
+            raise HTTPException(422, detail=f"Step {i} is missing 'action_type'")
+        try:
+            action_type = ActionType(action_type_value)
+        except ValueError as exc:
+            raise HTTPException(
+                422,
+                detail=f"Step {i} has unknown action_type: {action_type_value}",
+            ) from exc
+        normalized = _normalize_draft_step(raw_step, fallback_order=i)
+        try:
+            ActionStepFactory.create(
+                StepSpec(
+                    action_type=action_type,
+                    name=normalized["name"],
+                    step_order=int(normalized["step_order"]),
+                    parameters=normalized["parameters"],
+                )
+            )
+        except (ValidationError, ValueError) as exc:
+            raise HTTPException(
+                422, detail=f"Step {i} is invalid: {exc!s}"
+            ) from exc
+
+
+def _build_workflow_payload_from_draft(draft: dict, owner_name: str) -> dict:
+    """Translate a suggestion draft into the body shape `/api/workflows`
+    expects. Used by `accept_suggestion` to hand the caller a ready-to-POST
+    dict instead of forcing them to re-shape the flat draft themselves."""
+    steps = [
+        _normalize_draft_step(step, fallback_order=i)
+        for i, step in enumerate(draft.get("steps") or [])
+    ]
+    return {
+        "owner_name": owner_name,
+        "name": draft.get("name", "AI-Generated Workflow"),
+        "description": draft.get("description", ""),
+        "enabled": bool(draft.get("enabled", False)),
+        "max_retries": int(draft.get("max_retries", 0)),
+        "trigger": _normalize_draft_trigger(draft.get("trigger") or {}),
+        "steps": steps,
+    }
 
 
 @api_router.post("/suggestions/{suggestion_id}/accept", tags=["suggestions"])
@@ -871,16 +980,120 @@ def accept_suggestion(
         raise HTTPException(404, detail="Suggestion not found")
     if not orm.workflow_draft:
         raise HTTPException(422, detail="Suggestion has no workflow draft to accept")
+    if orm.pending_questions:
+        raise HTTPException(
+            422,
+            detail={
+                "message": (
+                    "Draft has unanswered questions. POST the answers to "
+                    "/api/suggestions/{id}/answer first."
+                ),
+                "pending_questions": orm.pending_questions,
+            },
+        )
     _validate_draft_trigger(orm.workflow_draft)
+    _validate_draft_steps(orm.workflow_draft)
     return {
         "suggestion_id": str(orm.id),
         "workflow_draft": orm.workflow_draft,
+        # Already in /api/workflows POST shape — caller can POST verbatim.
+        "workflow_payload": _build_workflow_payload_from_draft(
+            orm.workflow_draft, current_user
+        ),
         "hint": (
-            "POST the draft to /api/workflows to create it, then "
-            "POST {\"workflow_id\": <id>} to "
+            "POST `workflow_payload` to /api/workflows to create the "
+            "workflow, then POST {\"workflow_id\": <id>} to "
             "/api/suggestions/{id}/accept/link to record the link."
         ),
     }
+
+
+def _apply_dotted_answer(draft: dict, field: str, value) -> None:
+    """Set draft[field] using a dotted path (e.g. "trigger.path",
+    "steps.0.to_template"). Mutates the draft in place. Numeric segments
+    index into lists, anything else into dicts. Raises ValueError if the
+    path can't be navigated."""
+    parts = field.split(".")
+    cursor = draft
+    for part in parts[:-1]:
+        if part.isdigit():
+            idx = int(part)
+            if not isinstance(cursor, list) or idx >= len(cursor):
+                raise ValueError(f"Path segment '{part}' is out of range")
+            cursor = cursor[idx]
+        else:
+            if not isinstance(cursor, dict) or part not in cursor:
+                raise ValueError(f"Path segment '{part}' not found in draft")
+            cursor = cursor[part]
+    last = parts[-1]
+    if last.isdigit():
+        idx = int(last)
+        if not isinstance(cursor, list) or idx >= len(cursor):
+            raise ValueError(f"Path segment '{last}' is out of range")
+        cursor[idx] = value
+    else:
+        if not isinstance(cursor, dict):
+            raise ValueError("Final path segment must address a dict key")
+        cursor[last] = value
+
+
+class AnswerSuggestionBody(BaseModel):
+    # Dotted-field-path → user-supplied answer. Values are typed as Any
+    # because answers can be string, int, list, etc. depending on field.
+    answers: dict[str, object]
+
+
+@api_router.post("/suggestions/{suggestion_id}/answer", tags=["suggestions"])
+def answer_suggestion(
+    suggestion_id: UUID,
+    body: AnswerSuggestionBody,
+    db: Session = Depends(get_db),
+    current_user: str = Depends(get_current_user),
+):
+    """Apply user answers to a pending suggestion.
+
+    The frontend sends `{answers: {<field_path>: <value>}}` after the user
+    fills the clarification form rendered for `pending_questions`. We
+    merge the answers into the stored draft, re-run question detection
+    (the answer might create / leave other gaps), and persist the result
+    so the next /accept call sees a clean draft.
+    """
+    repo = SuggestionRepository(db)
+    orm = repo.get(suggestion_id)
+    if orm is None:
+        raise HTTPException(404, detail="Suggestion not found")
+    if orm.user_name and orm.user_name != current_user:
+        raise HTTPException(404, detail="Suggestion not found")
+    if not orm.workflow_draft:
+        raise HTTPException(422, detail="Suggestion has no draft to update")
+
+    # Only allow answers to fields the agent actually asked about. Stops
+    # callers from rewriting arbitrary parts of the draft via this route.
+    allowed_fields = {q.get("field") for q in (orm.pending_questions or [])}
+    if not allowed_fields:
+        raise HTTPException(422, detail="No pending questions to answer")
+    unknown = set(body.answers.keys()) - allowed_fields
+    if unknown:
+        raise HTTPException(
+            422,
+            detail=f"Unknown answer field(s): {sorted(unknown)}",
+        )
+
+    # Mutate a fresh copy so a partial failure can't half-apply.
+    import copy
+    new_draft = copy.deepcopy(orm.workflow_draft)
+    for field, value in body.answers.items():
+        try:
+            _apply_dotted_answer(new_draft, field, value)
+        except ValueError as exc:
+            raise HTTPException(422, detail=f"Cannot apply '{field}': {exc!s}") from exc
+
+    orm.workflow_draft = new_draft
+    orm.pending_questions = [
+        q.model_dump() for q in detect_pending_questions(new_draft)
+    ]
+    db.commit()
+    return _serialize_suggestion(repo.get(suggestion_id))
 
 
 class AcceptLinkBody(BaseModel):

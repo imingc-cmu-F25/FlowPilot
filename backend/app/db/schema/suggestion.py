@@ -25,6 +25,9 @@ class SuggestionORM(Base):
     analysis: Mapped[dict] = mapped_column(JSON, nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
     workflow_draft: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    # Clarifying questions the agent emitted (e.g. "what webhook path?").
+    # Empty list = draft is complete and can be POSTed to /api/workflows.
+    pending_questions: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     accepted_workflow_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid(as_uuid=True), nullable=True

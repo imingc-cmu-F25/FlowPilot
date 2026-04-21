@@ -22,11 +22,13 @@ import type { NodeConfig } from "../components/workflow-builder/nodeConfig";
 import { defaultConfigFor } from "../components/workflow-builder/nodeConfig";
 import {
   activateWorkflow,
+  answerSuggestion,
   createSuggestion,
   createWorkflow,
   fetchWorkflow,
   linkSuggestionToWorkflow,
   updateWorkflow,
+  type PendingQuestion,
   type SuggestionAnalysis,
   type WorkflowDefinition,
 } from "../lib/api";
@@ -50,6 +52,7 @@ interface ChatMessage {
   workflowDraft?: WorkflowDefinition | null;
   suggestionId?: string;
   analysis?: SuggestionAnalysis | null;
+  pendingQuestions?: PendingQuestion[];
 }
 
 interface TimeRecurrence {
@@ -652,6 +655,7 @@ export function WorkflowBuilderPage() {
         workflowDraft: res.workflow_draft,
         suggestionId: res.id,
         analysis: res.analysis ?? null,
+        pendingQuestions: res.pending_questions ?? [],
       };
       setChatMessages((prev) => [...prev, assistantMsg]);
     } catch (e) {
@@ -679,6 +683,31 @@ export function WorkflowBuilderPage() {
     setNodes(mapWorkflowToNodes(draft));
     setSelectedNode(null);
     if (suggestionId) setPendingSuggestionId(suggestionId);
+  };
+
+  const answerChatQuestion = async (
+    suggestionId: string,
+    answers: Record<string, string>,
+  ) => {
+    const updated = await answerSuggestion(suggestionId, answers);
+    // Replace the original assistant bubble in place rather than
+    // appending a new one — UX-wise the user is editing the same
+    // suggestion, not starting a new one.
+    setChatMessages((prev) =>
+      prev.map((m) =>
+        m.suggestionId === suggestionId
+          ? {
+              ...m,
+              content:
+                updated.pending_questions.length === 0
+                  ? "Got it — the workflow is ready to apply."
+                  : m.content,
+              workflowDraft: updated.workflow_draft,
+              pendingQuestions: updated.pending_questions,
+            }
+          : m,
+      ),
+    );
   };
 
   return (
@@ -798,6 +827,7 @@ export function WorkflowBuilderPage() {
               onSend={sendChatMessage}
               onClose={() => setShowAIChat(false)}
               onApplyDraft={applyDraftToCanvas}
+              onAnswer={answerChatQuestion}
               loading={chatLoading}
             />
           </div>
@@ -813,6 +843,8 @@ export function WorkflowBuilderPage() {
             onInputChange={setChatInput}
             onSend={sendChatMessage}
             onClose={() => setShowAIChat(false)}
+            onApplyDraft={applyDraftToCanvas}
+            onAnswer={answerChatQuestion}
           />
         </div>
       )}

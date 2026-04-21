@@ -4,9 +4,21 @@ from __future__ import annotations
 
 import re
 from datetime import UTC, datetime, timedelta
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from app.suggestion.base import AnalysisResult, SuggestionResult, UserInput
 from app.suggestion.strategies.base import SuggestionStrategy
+
+
+def _resolve_zone(tz_name: str | None) -> ZoneInfo:
+    """Mirror of rule_based._resolve_zone — best-effort IANA lookup with
+    UTC fallback so a malformed timezone never breaks the strategy."""
+    if not tz_name:
+        return ZoneInfo("UTC")
+    try:
+        return ZoneInfo(tz_name)
+    except ZoneInfoNotFoundError:
+        return ZoneInfo("UTC")
 
 
 def _extract_email(text: str) -> str:
@@ -51,7 +63,11 @@ def _extract_calendar_title(text: str) -> str:
 
 
 def _extract_hour(text: str) -> int | None:
-    m = re.search(r"(\d{1,2})\s*(am|pm)?", text.lower())
+    """See rule_based._extract_hour for the rationale on the anchored regex."""
+    lower = text.lower()
+    m = re.search(r"\bat\s+(\d{1,2})(?::\d{2})?\s*(am|pm)?\b", lower)
+    if not m:
+        m = re.search(r"\b(\d{1,2})\s*(am|pm)\b", lower)
     if not m:
         return None
     hour = int(m.group(1))
@@ -73,12 +89,15 @@ def _extract_delay_seconds(text: str) -> int | None:
     return int(m.group(1)) if m else None
 
 
-def _next_iso_at_hour(hour: int) -> str:
-    now = datetime.now(UTC)
-    target = now.replace(hour=hour, minute=0, second=0, microsecond=0)
-    if target <= now:
-        target += timedelta(days=1)
-    return target.isoformat()
+def _next_iso_at_hour(hour: int, tz_name: str | None = None) -> str:
+    """ISO datetime for the next HH:00 in the user's local timezone,
+    serialised as a UTC instant."""
+    zone = _resolve_zone(tz_name)
+    now_local = datetime.now(zone)
+    target_local = now_local.replace(hour=hour, minute=0, second=0, microsecond=0)
+    if target_local <= now_local:
+        target_local += timedelta(days=1)
+    return target_local.astimezone(UTC).isoformat()
 
 
 def _iso_after_minutes(minutes: int) -> str:
@@ -104,14 +123,14 @@ class _DailyEmailReportTemplate:
             "body": _extract_body(text) or "Here is your daily report.",
         }
 
-    def fill(self, params: dict) -> dict:
+    def fill(self, params: dict, *, tz_name: str | None = None) -> dict:
         return {
             "name": "Daily Email Report",
             "description": f"Sends a daily report email at {params['hour']}:00 UTC.",
             "trigger": {
                 "type": "time",
-                "trigger_at": _next_iso_at_hour(params["hour"]),
-                "timezone": "UTC",
+                "trigger_at": _next_iso_at_hour(params["hour"], tz_name=tz_name),
+                "timezone": tz_name or "UTC",
                 "recurrence": {
                     "frequency": "daily",
                     "interval": 1,
@@ -143,14 +162,14 @@ class _WeeklySummaryTemplate:
             "body": _extract_body(text) or "Here is your weekly summary.",
         }
 
-    def fill(self, params: dict) -> dict:
+    def fill(self, params: dict, *, tz_name: str | None = None) -> dict:
         return {
             "name": "Weekly Summary",
             "description": f"Sends a weekly summary email at {params['hour']}:00 UTC every Monday.",
             "trigger": {
                 "type": "time",
-                "trigger_at": _next_iso_at_hour(params["hour"]),
-                "timezone": "UTC",
+                "trigger_at": _next_iso_at_hour(params["hour"], tz_name=tz_name),
+                "timezone": tz_name or "UTC",
                 "recurrence": {
                     "frequency": "weekly",
                     "interval": 1,
@@ -181,7 +200,7 @@ class _WebhookToEmailTemplate:
             "body": _extract_body(text) or "Webhook payload received:\n\n{{previous_output}}",
         }
 
-    def fill(self, params: dict) -> dict:
+    def fill(self, params: dict, *, tz_name: str | None = None) -> dict:
         return {
             "name": "Webhook → Email",
             "description": "Forwards incoming webhook payloads via email.",
@@ -211,7 +230,7 @@ class _WebhookToApiTemplate:
     def extract_params(self, text: str) -> dict:
         return {"url": _extract_url(text)}
 
-    def fill(self, params: dict) -> dict:
+    def fill(self, params: dict, *, tz_name: str | None = None) -> dict:
         return {
             "name": "Webhook → API Call",
             "description": "Calls an external API when a webhook is received.",
@@ -244,7 +263,7 @@ class _ScheduledHttpPingTemplate:
             "hour": _extract_hour(text) or 9,
         }
 
-    def fill(self, params: dict) -> dict:
+    def fill(self, params: dict, *, tz_name: str | None = None) -> dict:
         return {
             "name": "Scheduled HTTP Ping",
             "description": (
@@ -254,8 +273,8 @@ class _ScheduledHttpPingTemplate:
             ),
             "trigger": {
                 "type": "time",
-                "trigger_at": _next_iso_at_hour(params["hour"]),
-                "timezone": "UTC",
+                "trigger_at": _next_iso_at_hour(params["hour"], tz_name=tz_name),
+                "timezone": tz_name or "UTC",
                 "recurrence": {
                     "frequency": "hourly",
                     "interval": 1,
@@ -288,14 +307,14 @@ class _HealthCheckAlertTemplate:
             "body": _extract_body(text) or "Health check result:\n\n{{previous_output}}",
         }
 
-    def fill(self, params: dict) -> dict:
+    def fill(self, params: dict, *, tz_name: str | None = None) -> dict:
         return {
             "name": "Health Check & Alert",
             "description": f"Checks {params['url'] or 'endpoint'} hourly and emails the result.",
             "trigger": {
                 "type": "time",
-                "trigger_at": _next_iso_at_hour(params["hour"]),
-                "timezone": "UTC",
+                "trigger_at": _next_iso_at_hour(params["hour"], tz_name=tz_name),
+                "timezone": tz_name or "UTC",
                 "recurrence": {
                     "frequency": "hourly",
                     "interval": 1,
@@ -336,14 +355,14 @@ class _FetchAndEmailTemplate:
             "body": _extract_body(text) or "Here is the fetched data:\n\n{{previous_output}}",
         }
 
-    def fill(self, params: dict) -> dict:
+    def fill(self, params: dict, *, tz_name: str | None = None) -> dict:
         return {
             "name": "Fetch Data & Email Report",
             "description": "Fetches data from an API and emails the results.",
             "trigger": {
                 "type": "time",
-                "trigger_at": _next_iso_at_hour(params["hour"]),
-                "timezone": "UTC",
+                "trigger_at": _next_iso_at_hour(params["hour"], tz_name=tz_name),
+                "timezone": tz_name or "UTC",
                 "recurrence": None,
             },
             "steps": [
@@ -384,7 +403,7 @@ class _DelayedEmailTemplate:
             ),
         }
 
-    def fill(self, params: dict) -> dict:
+    def fill(self, params: dict, *, tz_name: str | None = None) -> dict:
         minutes = params["minutes"]
         return {
             "name": f"Send Email After {minutes} Minutes",
@@ -425,7 +444,7 @@ class _DelayedEmailSecondsTemplate:
             ),
         }
 
-    def fill(self, params: dict) -> dict:
+    def fill(self, params: dict, *, tz_name: str | None = None) -> dict:
         seconds = params["seconds"]
         return {
             "name": f"Send Email After {seconds} Seconds",
@@ -463,7 +482,7 @@ class _DailyScheduleEmailTemplate:
             ),
         }
 
-    def fill(self, params: dict) -> dict:
+    def fill(self, params: dict, *, tz_name: str | None = None) -> dict:
         return {
             "name": "Daily Schedule Email",
             "description": (
@@ -472,8 +491,8 @@ class _DailyScheduleEmailTemplate:
             ),
             "trigger": {
                 "type": "time",
-                "trigger_at": _next_iso_at_hour(params["hour"]),
-                "timezone": "UTC",
+                "trigger_at": _next_iso_at_hour(params["hour"], tz_name=tz_name),
+                "timezone": tz_name or "UTC",
                 "recurrence": {
                     "frequency": "daily",
                     "interval": 1,
@@ -521,7 +540,7 @@ class _CalendarEventToEmailTemplate:
             ),
         }
 
-    def fill(self, params: dict) -> dict:
+    def fill(self, params: dict, *, tz_name: str | None = None) -> dict:
         return {
             "name": "Calendar Event → Email",
             "description": (
@@ -667,7 +686,7 @@ class TemplateStrategy(SuggestionStrategy):
                 strategy_used="template",
             )
         params = template.extract_params(user_input.raw_text)
-        draft = template.fill(params)
+        draft = template.fill(params, tz_name=user_input.timezone)
         return SuggestionResult(
             content=f"Used template '{template.id}' with your parameters.",
             workflow_draft=draft,
