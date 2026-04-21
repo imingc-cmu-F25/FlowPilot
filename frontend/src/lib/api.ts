@@ -420,6 +420,23 @@ export async function fetchSuggestions(
   return data as SuggestionResponse[];
 }
 
+export async function linkSuggestionToWorkflow(
+  suggestionId: string,
+  workflowId: string,
+): Promise<SuggestionResponse> {
+  const res = await apiFetch(
+    `${API_BASE}/suggestions/${encodeURIComponent(suggestionId)}/accept/link`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ workflow_id: workflowId }),
+    },
+  );
+  const data = await parseBody(res);
+  if (!res.ok) throw new Error(extractDetail(data) ?? res.statusText);
+  return data as SuggestionResponse;
+}
+
 export async function loginUser(
   name: string,
   password: string,

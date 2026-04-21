@@ -30,11 +30,13 @@ _WORKFLOW_SCHEMA = {
                     "properties": {
                         "type": {
                             "type": "string",
-                            "enum": ["time", "webhook", "custom"],
+                            "enum": ["time", "webhook", "custom", "calendar_event"],
                             "description": (
                                 "time=scheduled/delayed,"
                                 " webhook=HTTP event-driven,"
-                                " custom=condition-based"
+                                " custom=condition-based,"
+                                " calendar_event=fires when a new event"
+                                " appears in the user's Google Calendar"
                             ),
                         },
                         # time trigger fields
@@ -133,6 +135,36 @@ _WORKFLOW_SCHEMA = {
                             "type": "string",
                             "description": "Context source for custom trigger evaluation",
                         },
+                        # calendar_event trigger fields
+                        "calendar_id": {
+                            "type": "string",
+                            "description": (
+                                "Google Calendar id to watch"
+                                " (for type=calendar_event)."
+                                " Use 'primary' for the user's"
+                                " main calendar."
+                            ),
+                        },
+                        "title_contains": {
+                            "type": "string",
+                            "description": (
+                                "Optional substring filter on"
+                                " event title (for"
+                                " type=calendar_event). Empty"
+                                " string means no filter."
+                            ),
+                        },
+                        "dedup_seconds": {
+                            "type": "integer",
+                            "description": (
+                                "Debounce window in seconds"
+                                " (for type=calendar_event,"
+                                " default 60). Ignore"
+                                " first-seen events within"
+                                " this window of the prior"
+                                " dispatch."
+                            ),
+                        },
                     },
                     "required": ["type"],
                 },
@@ -150,7 +182,12 @@ _WORKFLOW_SCHEMA = {
                         "properties": {
                             "action_type": {
                                 "type": "string",
-                                "enum": ["send_email", "http_request", "calendar_create_event"],
+                                "enum": [
+                                    "send_email",
+                                    "http_request",
+                                    "calendar_create_event",
+                                    "calendar_list_upcoming",
+                                ],
                                 "description": "Type of action to perform",
                             },
                             "name": {
@@ -251,6 +288,33 @@ _WORKFLOW_SCHEMA = {
                                     " calendar_create_event)"
                                 ),
                             },
+                            # calendar_list_upcoming fields
+                            # (calendar_id is reused from above)
+                            "max_results": {
+                                "type": "integer",
+                                "description": (
+                                    "Max events to return"
+                                    " (for calendar_list_upcoming,"
+                                    " 1-100, default 10)."
+                                ),
+                            },
+                            "title_contains": {
+                                "type": "string",
+                                "description": (
+                                    "Optional substring filter"
+                                    " on event title (for"
+                                    " calendar_list_upcoming)."
+                                ),
+                            },
+                            "window_hours": {
+                                "type": "integer",
+                                "description": (
+                                    "Lookahead window in hours"
+                                    " (for calendar_list_upcoming)."
+                                    " 0 = no time bound, just"
+                                    " rely on max_results."
+                                ),
+                            },
                         },
                         "required": ["action_type", "name", "step_order"],
                     },
@@ -275,11 +339,16 @@ class LLMStrategy(SuggestionStrategy):
         "- `time` — run at a specific datetime, optionally recurring "
         "(minutely, hourly, daily, weekly, or custom cron).\n"
         "- `webhook` — run when an HTTP request hits a specific path.\n"
-        "- `custom` — run when a condition expression evaluates to true.\n\n"
+        "- `custom` — run when a condition expression evaluates to true.\n"
+        "- `calendar_event` — run when a new event appears in the user's "
+        "Google Calendar (optionally filtered by title substring).\n\n"
         "**Actions** (what a workflow does, steps execute sequentially):\n"
         "- `send_email` — send an email with configurable recipient, subject, and body.\n"
         "- `http_request` — call any HTTP API/URL with configurable method, headers, and URL.\n"
-        "- `calendar_create_event` — create a calendar event with title, start/end times.\n\n"
+        "- `calendar_create_event` — create a calendar event with title, start/end times.\n"
+        "- `calendar_list_upcoming` — fetch the next N upcoming events from a "
+        "calendar; downstream steps can reference the result via "
+        "`{{{{previous_output}}}}`.\n\n"
         "**Chaining**: steps run in order. Later steps can reference earlier step outputs "
         "using `{{{{previous_output}}}}` in any template field.\n\n"
         "## Rules\n"
@@ -295,11 +364,21 @@ class LLMStrategy(SuggestionStrategy):
         "   - Set `recurrence` when the user wants it repeated. Pick the right frequency "
         "and interval. For 'every weekday' use custom cron '0 9 * * 1-5'.\n"
         "   - Omit `recurrence` (or set null) for one-time tasks.\n"
+        "   - `recurrence: null` is VALID and is the correct value for a one-time trigger. "
+        "NEVER describe a missing or null `recurrence` as an error, and never instruct the "
+        "user to 'fix' it by adding one. If the user's phrasing is ambiguous about whether "
+        "the task should repeat (e.g. 'send an email at 9:00' could be once or daily), "
+        "ask the user to clarify instead of treating either choice as wrong.\n"
         "5. For WEBHOOK triggers:\n"
         "   - Set a meaningful `path` starting with / (e.g. /hooks/github-push).\n"
         "   - Set `method` (default POST). Use `event_filter` if the user specifies event types.\n"
         "6. For CUSTOM triggers:\n"
         "   - Set a `condition` expression and optional `source`.\n"
+        "6b. For CALENDAR_EVENT triggers:\n"
+        "   - Set `calendar_id` (default 'primary'). Use `title_contains` "
+        "to filter to events whose title contains a phrase (e.g. 'standup', "
+        "'1:1'). Leave `dedup_seconds` unset unless the user wants a "
+        "different debounce window from the 60s default.\n"
         "7. For SEND_EMAIL steps:\n"
         "   - Extract the recipient from the request. If unclear, use a descriptive placeholder "
         "the user can easily fill in (e.g. 'your-team@company.com').\n"
@@ -310,12 +389,25 @@ class LLMStrategy(SuggestionStrategy):
         "subsequent step that uses {{{{previous_output}}}}.\n"
         "9. For CALENDAR_CREATE_EVENT steps:\n"
         "   - Set calendar_id, title_template, start_mapping, and end_mapping.\n"
+        "9b. For CALENDAR_LIST_UPCOMING steps:\n"
+        "   - Set `calendar_id` (default 'primary') and `max_results` "
+        "(1-100, default 10). Use `window_hours` to bound the lookahead "
+        "(e.g. 24 = next day, 168 = next week, 0 = no time bound). Use "
+        "`title_contains` if the user only cares about a subset of events. "
+        "Pair this with a downstream send_email/http_request step that "
+        "consumes `{{{{previous_output}}}}`.\n"
         "10. Combine multiple steps for complex requests. Examples:\n"
         "    - 'Check API health and alert me' → http_request + send_email\n"
         "    - 'Fetch weather and email report' → "
         "http_request + send_email with {{{{previous_output}}}}\n"
         "    - 'When webhook fires, call API and create "
         "calendar event' → http_request + calendar_create_event\n"
+        "    - 'Every morning email me my schedule for today' → time trigger "
+        "(daily 8am) + calendar_list_upcoming (window_hours=24) + send_email "
+        "with {{{{previous_output}}}}\n"
+        "    - 'When a meeting titled 1:1 is added to my calendar, post to "
+        "this webhook' → calendar_event trigger (title_contains='1:1') + "
+        "http_request\n"
         "11. Think about what the user actually wants to "
         "achieve and build the best workflow for it."
     )
@@ -350,8 +442,20 @@ class LLMStrategy(SuggestionStrategy):
             )
             message = response.choices[0].message
             if not message.tool_calls:
+                # When the provider (e.g. Groq on Llama) ignores our
+                # tool_choice directive and emits a plain chat reply,
+                # `message.content` often scolds the user with bogus
+                # "fix the recurrence error" instructions. Surfacing that
+                # verbatim is worse than useless — it blames the user for
+                # something that's actually a model-side refusal. Return a
+                # neutral message instead so the UI falls back cleanly.
                 return SuggestionResult(
-                    content=(message.content or "Could not generate a structured workflow."),
+                    content=(
+                        "I couldn't build a structured workflow from that input. "
+                        "Try rephrasing with a clearer intent — e.g. 'send an "
+                        "email to X after 30 seconds' or 'every Monday 9am call "
+                        "https://example.com/api'."
+                    ),
                     workflow_draft=None,
                     strategy_used="llm",
                 )

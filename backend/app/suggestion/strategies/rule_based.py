@@ -37,6 +37,13 @@ def _extract_minutes(text: str) -> int | None:
     return int(m.group(1)) if m else None
 
 
+def _extract_delay_seconds(text: str) -> int | None:
+    """Match 'after N seconds' / 'in N sec'. Distinct from minutes so we
+    can fire on a sub-minute trigger without round-up."""
+    m = re.search(r"(?:after|in)\s+(\d+)\s*(?:sec|second)s?\b", text.lower())
+    return int(m.group(1)) if m else None
+
+
 def _extract_interval(text: str) -> tuple[int, str]:
     m = re.search(r"(?:every|each)\s+(\d+)\s+(minute|hour|day|week)", text.lower())
     if m:
@@ -64,6 +71,17 @@ def _extract_body(text: str) -> str:
     return ""
 
 
+def _extract_calendar_title(text: str) -> str:
+    """Pull a calendar event title filter out of phrases like 'titled "1:1"'."""
+    m = re.search(r'(?:titled|named|called)\s*[:=]?\s*"([^"]+)"', text, re.IGNORECASE)
+    if m:
+        return m.group(1)
+    m = re.search(r"(?:titled|named|called)\s*[:=]?\s*'([^']+)'", text, re.IGNORECASE)
+    if m:
+        return m.group(1)
+    return ""
+
+
 def _next_iso_at_hour(hour: int) -> str:
     now = datetime.now(UTC)
     target = now.replace(hour=hour, minute=0, second=0, microsecond=0)
@@ -74,6 +92,10 @@ def _next_iso_at_hour(hour: int) -> str:
 
 def _iso_after_minutes(minutes: int) -> str:
     return (datetime.now(UTC) + timedelta(minutes=minutes)).isoformat()
+
+
+def _iso_after_seconds(seconds: int) -> str:
+    return (datetime.now(UTC) + timedelta(seconds=seconds)).isoformat()
 
 
 # ---------------------------------------------------------------------------
@@ -96,6 +118,38 @@ def _build_delayed_email_draft(text: str) -> dict:
         "trigger": {
             "type": "time",
             "trigger_at": _iso_after_minutes(minutes),
+            "timezone": "UTC",
+            "recurrence": None,
+        },
+        "steps": [
+            {
+                "action_type": "send_email",
+                "name": "Send Delayed Email",
+                "step_order": 0,
+                "to_template": to,
+                "subject_template": subject,
+                "body_template": body,
+            }
+        ],
+    }
+
+
+def _build_delayed_email_seconds_draft(text: str) -> dict:
+    """'send email after N seconds' — sub-minute delayed email."""
+    seconds = _extract_delay_seconds(text) or 30
+    to = _extract_email(text)
+    subject = _extract_subject(text) or "Scheduled Notification"
+    body = (
+        _extract_body(text)
+        or f"This is your scheduled email, sent"
+        f" {seconds} seconds after creation."
+    )
+    return {
+        "name": f"Send Email After {seconds} Seconds",
+        "description": f"Sends an email {seconds} seconds from now.",
+        "trigger": {
+            "type": "time",
+            "trigger_at": _iso_after_seconds(seconds),
             "timezone": "UTC",
             "recurrence": None,
         },
@@ -371,13 +425,142 @@ def _build_fetch_and_email_draft(text: str) -> dict:
     }
 
 
+def _build_daily_schedule_email_draft(text: str) -> dict:
+    """'every morning email me today's schedule / calendar / agenda'."""
+    hour = _extract_hour(text) or 8
+    to = _extract_email(text)
+    subject = _extract_subject(text) or "Your schedule for today"
+    body = (
+        _extract_body(text)
+        or "Here are your upcoming calendar events:\n\n{{previous_output}}"
+    )
+    return {
+        "name": "Daily Schedule Email",
+        "description": (
+            f"Each day at {hour}:00 UTC, fetch upcoming calendar "
+            f"events and email them."
+        ),
+        "trigger": {
+            "type": "time",
+            "trigger_at": _next_iso_at_hour(hour),
+            "timezone": "UTC",
+            "recurrence": {
+                "frequency": "daily",
+                "interval": 1,
+                "days_of_week": [],
+                "cron_expression": "",
+            },
+        },
+        "steps": [
+            {
+                "action_type": "calendar_list_upcoming",
+                "name": "List Upcoming Events",
+                "step_order": 0,
+                "calendar_id": "primary",
+                "max_results": 10,
+                "title_contains": "",
+                "window_hours": 24,
+            },
+            {
+                "action_type": "send_email",
+                "name": "Email Schedule",
+                "step_order": 1,
+                "to_template": to,
+                "subject_template": subject,
+                "body_template": body,
+            },
+        ],
+    }
+
+
+def _build_calendar_event_to_email_draft(text: str) -> dict:
+    """'when a calendar event (titled X) shows up, email me / notify ...'."""
+    to = _extract_email(text)
+    title_contains = _extract_calendar_title(text)
+    subject = (
+        _extract_subject(text)
+        or (
+            f"New calendar event: {title_contains}"
+            if title_contains
+            else "New calendar event"
+        )
+    )
+    body = (
+        _extract_body(text)
+        or "A new event was added to your calendar:\n\n{{previous_output}}"
+    )
+    return {
+        "name": "Calendar Event → Email",
+        "description": (
+            "Emails a notification whenever a new event appears "
+            "in the user's Google Calendar."
+            + (f" Filtered to events titled '{title_contains}'." if title_contains else "")
+        ),
+        "trigger": {
+            "type": "calendar_event",
+            "calendar_id": "primary",
+            "title_contains": title_contains,
+            "dedup_seconds": 60,
+        },
+        "steps": [
+            {
+                "action_type": "send_email",
+                "name": "Send Notification",
+                "step_order": 0,
+                "to_template": to,
+                "subject_template": subject,
+                "body_template": body,
+            }
+        ],
+    }
+
+
 class RuleBasedStrategy(SuggestionStrategy):
     """Matches hard-coded regex patterns against raw_text. Returns preset drafts."""
 
     RULES: list[tuple[str, callable]] = [
+        # delayed email (seconds): "send email after 30 seconds". Must come
+        # BEFORE the minute-based rule because the minute regex doesn't
+        # match "sec(ond)s" — but guarding explicitly makes ordering safe
+        # if the minute pattern is ever broadened.
+        (
+            r"(send|email).*(after|in)\s+\d+\s*(sec|second)s?\b",
+            _build_delayed_email_seconds_draft,
+        ),
+        (
+            r"(after|in)\s+\d+\s*(sec|second)s?\b.*(send|email)",
+            _build_delayed_email_seconds_draft,
+        ),
         # delayed email: "send email after 5 minutes"
         (r"(send|email).*(after|in)\s+\d+\s*(min|minute)", _build_delayed_email_draft),
         (r"(after|in)\s+\d+\s*(min|minute).*(send|email)", _build_delayed_email_draft),
+        # Calendar patterns come BEFORE the generic daily-email rule so
+        # "every morning email me my schedule" is not mis-matched to a
+        # plain daily email with no calendar step.
+        # calendar_event trigger → action: "when a meeting titled X shows up..."
+        (
+            r"(when|on|if).*(calendar|meeting|event|appointment).*"
+            r"(email|send|notify|alert|call|hook|webhook|post|http)",
+            _build_calendar_event_to_email_draft,
+        ),
+        (
+            r"(new|add|added|created).*(calendar|meeting|event).*(email|notify|alert)",
+            _build_calendar_event_to_email_draft,
+        ),
+        # daily calendar digest: "every morning email me my schedule"
+        (
+            r"(every|each)\s+(morning|day|evening|afternoon).*"
+            r"(schedule|calendar|agenda|meeting|event|appointment)",
+            _build_daily_schedule_email_draft,
+        ),
+        (
+            r"(daily|every day).*(schedule|calendar|agenda|upcoming)",
+            _build_daily_schedule_email_draft,
+        ),
+        (
+            r"(schedule|calendar|agenda|upcoming).*(daily|every day|each morning)",
+            _build_daily_schedule_email_draft,
+        ),
         # health check + alert: "check health ... email"
         (
             r"(check|monitor|ping).*(health|status|uptime).*(email|alert|notify)",

@@ -16,6 +16,7 @@ from app.core.auth import (
     enforce_owner_match,
     enforce_run_access,
     enforce_workflow_access,
+    get_current_user,
     get_current_user_optional,
 )
 from app.core.config import settings
@@ -29,7 +30,9 @@ from app.suggestion.repo import SuggestionRepository
 from app.suggestion.service import SuggestionService
 from app.trigger.customTrigger import AVAILABLE_VARIABLES, dry_run_condition
 from app.trigger.service import TriggerService
+from app.trigger.trigger import TriggerSpec, TriggerType
 from app.trigger.triggerConfig import WebhookTriggerConfig
+from app.trigger.triggerFactories import build_trigger_config
 from app.trigger.triggerRegistry import TriggerRegistry
 from app.trigger.webhook_auth import verify_webhook_auth
 from app.user.repo import UserRepository
@@ -790,13 +793,14 @@ def _serialize_suggestion(orm) -> dict:
 async def create_suggestion(
     body: CreateSuggestionBody,
     db: Session = Depends(get_db),
-    current_user: str | None = Depends(get_current_user_optional),
+    current_user: str = Depends(get_current_user),
 ):
-    effective_user = current_user if current_user is not None else body.user_name
-    if current_user is not None and body.user_name and body.user_name != current_user:
+    # Body's `user_name` is now ignored / cross-checked against the token —
+    # the only authoritative source for who's asking is the bearer token.
+    if body.user_name and body.user_name != current_user:
         raise HTTPException(403, detail="Cannot create suggestion for another user")
     service = SuggestionService(db)
-    user_input = UserInput(raw_text=body.raw_text, user_name=effective_user)
+    user_input = UserInput(raw_text=body.raw_text, user_name=current_user)
     try:
         orm = await service.suggest(user_input)
     except Exception as exc:  # noqa: BLE001
@@ -808,7 +812,7 @@ async def create_suggestion(
 def list_suggestions(
     user_name: str,
     db: Session = Depends(get_db),
-    current_user: str | None = Depends(get_current_user_optional),
+    current_user: str = Depends(get_current_user),
 ):
     enforce_owner_match(user_name, current_user)
     repo = SuggestionRepository(db)
@@ -819,36 +823,87 @@ def list_suggestions(
 def get_suggestion(
     suggestion_id: UUID,
     db: Session = Depends(get_db),
-    current_user: str | None = Depends(get_current_user_optional),
+    current_user: str = Depends(get_current_user),
 ):
     repo = SuggestionRepository(db)
     orm = repo.get(suggestion_id)
     if orm is None:
         raise HTTPException(404, detail="Suggestion not found")
-    if current_user is not None and orm.user_name and orm.user_name != current_user:
+    if orm.user_name and orm.user_name != current_user:
         raise HTTPException(404, detail="Suggestion not found")
     return _serialize_suggestion(orm)
+
+
+def _validate_draft_trigger(draft: dict) -> None:
+    """Validate the draft's trigger sub-object, raising 422 on any failure.
+
+    Drafts store `trigger` flat (`{type, trigger_at, ...}`), but the trigger
+    factory expects `TriggerSpec(type, parameters)`. We translate then run
+    the factory's own validate_config(), so a bad cron / past datetime /
+    unknown type is caught here rather than at /workflows POST time.
+    """
+    raw = draft.get("trigger") or {}
+    type_value = raw.get("type")
+    if not type_value:
+        raise HTTPException(422, detail="Draft trigger is missing 'type'")
+    try:
+        trigger_type = TriggerType(type_value)
+    except ValueError as exc:
+        raise HTTPException(422, detail=f"Unknown trigger type: {type_value}") from exc
+    parameters = {k: v for k, v in raw.items() if k != "type"}
+    try:
+        build_trigger_config(TriggerSpec(type=trigger_type, parameters=parameters))
+    except (ValidationError, ValueError) as exc:
+        raise HTTPException(422, detail=f"Invalid trigger in draft: {exc!s}") from exc
 
 
 @api_router.post("/suggestions/{suggestion_id}/accept", tags=["suggestions"])
 def accept_suggestion(
     suggestion_id: UUID,
     db: Session = Depends(get_db),
-    current_user: str | None = Depends(get_current_user_optional),
+    current_user: str = Depends(get_current_user),
 ):
     repo = SuggestionRepository(db)
     orm = repo.get(suggestion_id)
     if orm is None:
         raise HTTPException(404, detail="Suggestion not found")
-    if current_user is not None and orm.user_name and orm.user_name != current_user:
+    if orm.user_name and orm.user_name != current_user:
         raise HTTPException(404, detail="Suggestion not found")
     if not orm.workflow_draft:
         raise HTTPException(422, detail="Suggestion has no workflow draft to accept")
+    _validate_draft_trigger(orm.workflow_draft)
     return {
         "suggestion_id": str(orm.id),
         "workflow_draft": orm.workflow_draft,
         "hint": (
-            "POST the draft to /api/workflows to create it, then call "
-            "/suggestions/{id}/accept/link to record the accepted workflow id."
+            "POST the draft to /api/workflows to create it, then "
+            "POST {\"workflow_id\": <id>} to "
+            "/api/suggestions/{id}/accept/link to record the link."
         ),
     }
+
+
+class AcceptLinkBody(BaseModel):
+    workflow_id: UUID
+
+
+@api_router.post("/suggestions/{suggestion_id}/accept/link", tags=["suggestions"])
+def link_accepted_workflow(
+    suggestion_id: UUID,
+    body: AcceptLinkBody,
+    db: Session = Depends(get_db),
+    current_user: str = Depends(get_current_user),
+):
+    repo = SuggestionRepository(db)
+    orm = repo.get(suggestion_id)
+    if orm is None:
+        raise HTTPException(404, detail="Suggestion not found")
+    if orm.user_name and orm.user_name != current_user:
+        raise HTTPException(404, detail="Suggestion not found")
+    # enforce_workflow_access raises 404 if the workflow doesn't exist or
+    # belongs to a different user.
+    enforce_workflow_access(db, body.workflow_id, current_user)
+    repo.mark_accepted(suggestion_id, body.workflow_id)
+    db.commit()
+    refreshed = repo.get(suggestion_id)
+    return _serialize_suggestion(refreshed)

@@ -39,6 +39,17 @@ def _extract_body(text: str) -> str:
     return ""
 
 
+def _extract_calendar_title(text: str) -> str:
+    """Pull a calendar event title filter out of phrases like 'titled "1:1"'."""
+    m = re.search(r'(?:titled|named|called)\s*[:=]?\s*"([^"]+)"', text, re.IGNORECASE)
+    if m:
+        return m.group(1)
+    m = re.search(r"(?:titled|named|called)\s*[:=]?\s*'([^']+)'", text, re.IGNORECASE)
+    if m:
+        return m.group(1)
+    return ""
+
+
 def _extract_hour(text: str) -> int | None:
     m = re.search(r"(\d{1,2})\s*(am|pm)?", text.lower())
     if not m:
@@ -57,6 +68,11 @@ def _extract_minutes(text: str) -> int | None:
     return int(m.group(1)) if m else None
 
 
+def _extract_delay_seconds(text: str) -> int | None:
+    m = re.search(r"(?:after|in)\s+(\d+)\s*(?:sec|second)s?\b", text.lower())
+    return int(m.group(1)) if m else None
+
+
 def _next_iso_at_hour(hour: int) -> str:
     now = datetime.now(UTC)
     target = now.replace(hour=hour, minute=0, second=0, microsecond=0)
@@ -67,6 +83,10 @@ def _next_iso_at_hour(hour: int) -> str:
 
 def _iso_after_minutes(minutes: int) -> str:
     return (datetime.now(UTC) + timedelta(minutes=minutes)).isoformat()
+
+
+def _iso_after_seconds(seconds: int) -> str:
+    return (datetime.now(UTC) + timedelta(seconds=seconds)).isoformat()
 
 
 # ---------------------------------------------------------------------------
@@ -388,11 +408,156 @@ class _DelayedEmailTemplate:
         }
 
 
+class _DelayedEmailSecondsTemplate:
+    id = "delayed_email_seconds"
+
+    def extract_params(self, text: str) -> dict:
+        seconds = _extract_delay_seconds(text) or 30
+        return {
+            "seconds": seconds,
+            "to": _extract_email(text),
+            "subject": _extract_subject(text) or "Scheduled Notification",
+            "body": (
+                _extract_body(text)
+                or f"This is your scheduled email,"
+                f" sent {seconds} seconds"
+                f" after creation."
+            ),
+        }
+
+    def fill(self, params: dict) -> dict:
+        seconds = params["seconds"]
+        return {
+            "name": f"Send Email After {seconds} Seconds",
+            "description": f"Sends an email {seconds} seconds from now.",
+            "trigger": {
+                "type": "time",
+                "trigger_at": _iso_after_seconds(seconds),
+                "timezone": "UTC",
+                "recurrence": None,
+            },
+            "steps": [
+                {
+                    "action_type": "send_email",
+                    "name": "Send Delayed Email",
+                    "step_order": 0,
+                    "to_template": params["to"],
+                    "subject_template": params["subject"],
+                    "body_template": params["body"],
+                }
+            ],
+        }
+
+
+class _DailyScheduleEmailTemplate:
+    id = "daily_schedule_email"
+
+    def extract_params(self, text: str) -> dict:
+        return {
+            "hour": _extract_hour(text) or 8,
+            "to": _extract_email(text),
+            "subject": _extract_subject(text) or "Your schedule for today",
+            "body": (
+                _extract_body(text)
+                or "Here are your upcoming calendar events:\n\n{{previous_output}}"
+            ),
+        }
+
+    def fill(self, params: dict) -> dict:
+        return {
+            "name": "Daily Schedule Email",
+            "description": (
+                f"Each day at {params['hour']}:00 UTC, fetch upcoming "
+                f"calendar events and email them."
+            ),
+            "trigger": {
+                "type": "time",
+                "trigger_at": _next_iso_at_hour(params["hour"]),
+                "timezone": "UTC",
+                "recurrence": {
+                    "frequency": "daily",
+                    "interval": 1,
+                    "days_of_week": [],
+                    "cron_expression": "",
+                },
+            },
+            "steps": [
+                {
+                    "action_type": "calendar_list_upcoming",
+                    "name": "List Upcoming Events",
+                    "step_order": 0,
+                    "calendar_id": "primary",
+                    "max_results": 10,
+                    "title_contains": "",
+                    "window_hours": 24,
+                },
+                {
+                    "action_type": "send_email",
+                    "name": "Email Schedule",
+                    "step_order": 1,
+                    "to_template": params["to"],
+                    "subject_template": params["subject"],
+                    "body_template": params["body"],
+                },
+            ],
+        }
+
+
+class _CalendarEventToEmailTemplate:
+    id = "calendar_event_to_email"
+
+    def extract_params(self, text: str) -> dict:
+        title = _extract_calendar_title(text)
+        return {
+            "to": _extract_email(text),
+            "title_contains": title,
+            "subject": (
+                _extract_subject(text)
+                or (f"New calendar event: {title}" if title else "New calendar event")
+            ),
+            "body": (
+                _extract_body(text)
+                or "A new event was added to your calendar:\n\n{{previous_output}}"
+            ),
+        }
+
+    def fill(self, params: dict) -> dict:
+        return {
+            "name": "Calendar Event → Email",
+            "description": (
+                "Emails a notification whenever a new event appears in"
+                " the user's Google Calendar."
+                + (
+                    f" Filtered to events titled '{params['title_contains']}'."
+                    if params["title_contains"]
+                    else ""
+                )
+            ),
+            "trigger": {
+                "type": "calendar_event",
+                "calendar_id": "primary",
+                "title_contains": params["title_contains"],
+                "dedup_seconds": 60,
+            },
+            "steps": [
+                {
+                    "action_type": "send_email",
+                    "name": "Send Notification",
+                    "step_order": 0,
+                    "to_template": params["to"],
+                    "subject_template": params["subject"],
+                    "body_template": params["body"],
+                }
+            ],
+        }
+
+
 class TemplateStrategy(SuggestionStrategy):
     """Matches input_type to a template, extracts params, fills skeleton."""
 
     TEMPLATES = {
         "delayed_email": _DelayedEmailTemplate(),
+        "delayed_email_seconds": _DelayedEmailSecondsTemplate(),
         "daily_email_report": _DailyEmailReportTemplate(),
         "weekly_summary": _WeeklySummaryTemplate(),
         "webhook_to_email": _WebhookToEmailTemplate(),
@@ -400,6 +565,8 @@ class TemplateStrategy(SuggestionStrategy):
         "scheduled_http_ping": _ScheduledHttpPingTemplate(),
         "health_check_alert": _HealthCheckAlertTemplate(),
         "fetch_and_email": _FetchAndEmailTemplate(),
+        "daily_schedule_email": _DailyScheduleEmailTemplate(),
+        "calendar_event_to_email": _CalendarEventToEmailTemplate(),
     }
 
     def __init__(self, analysis: AnalysisResult | None = None) -> None:
@@ -418,11 +585,40 @@ class TemplateStrategy(SuggestionStrategy):
     def _pick_template(self, user_input: UserInput):
         text = self._strip_quoted(user_input.raw_text).lower()
 
+        # delayed email (seconds). Check BEFORE the minute branch since
+        # they share the "after N X" structure.
+        if re.search(r"(after|in)\s+\d+\s*(sec|second)s?\b", text) and any(
+            k in text for k in ("email", "send", "mail")
+        ):
+            return self.TEMPLATES["delayed_email_seconds"]
+
         # delayed email
         if re.search(r"(after|in)\s+\d+\s*(min|minute)", text) and any(
             k in text for k in ("email", "send", "mail")
         ):
             return self.TEMPLATES["delayed_email"]
+
+        # calendar_event → action. Check this BEFORE generic webhook/email
+        # rules so "when a meeting titled X lands, email me" is not
+        # mis-matched to webhook_to_email.
+        calendar_keywords = ("calendar", "meeting", "event", "appointment")
+        if any(k in text for k in ("when", "on", "if", "new", "added", "created")) and any(
+            k in text for k in calendar_keywords
+        ) and any(
+            k in text for k in ("email", "send", "notify", "alert")
+        ):
+            return self.TEMPLATES["calendar_event_to_email"]
+
+        # daily schedule digest. Check BEFORE the generic "daily" branch
+        # so "every morning email me my schedule" builds a calendar digest
+        # rather than a schedule-less daily email.
+        if any(
+            k in text for k in ("schedule", "agenda", "upcoming", "calendar")
+        ) and any(
+            k in text
+            for k in ("daily", "every day", "every morning", "each morning", "each day")
+        ):
+            return self.TEMPLATES["daily_schedule_email"]
 
         # health check + alert (multi-step)
         if any(k in text for k in ("check", "monitor", "health", "ping", "status")) and any(

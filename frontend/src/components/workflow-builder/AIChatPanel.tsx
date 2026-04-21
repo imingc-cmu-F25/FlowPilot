@@ -1,5 +1,6 @@
+import { useEffect, useRef } from "react";
 import { Sparkles, X, Send, Wand2 } from "lucide-react";
-import type { WorkflowDefinition } from "../../lib/api";
+import type { SuggestionAnalysis, WorkflowDefinition } from "../../lib/api";
 
 export interface ChatMessage {
   id: string;
@@ -7,6 +8,7 @@ export interface ChatMessage {
   content: string;
   workflowDraft?: WorkflowDefinition | null;
   suggestionId?: string;
+  analysis?: SuggestionAnalysis | null;
 }
 
 interface AIChatPanelProps {
@@ -15,7 +17,7 @@ interface AIChatPanelProps {
   onInputChange: (value: string) => void;
   onSend: () => void;
   onClose: () => void;
-  onApplyDraft?: (draft: WorkflowDefinition) => void;
+  onApplyDraft?: (draft: WorkflowDefinition, suggestionId?: string) => void;
   loading?: boolean;
 }
 
@@ -28,6 +30,17 @@ export function AIChatPanel({
   onApplyDraft,
   loading = false,
 }: AIChatPanelProps) {
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+
+  // Keep the latest message / "Thinking…" indicator in view. Scroll the
+  // inner messages container rather than the window so the surrounding
+  // builder page doesn't jump.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+  }, [messages, loading]);
+
   return (
     <div className="flex w-full flex-col border-l border-gray-200 bg-white sm:w-80 md:w-96">
       <div className="flex items-center justify-between border-b border-gray-200 p-4">
@@ -46,7 +59,7 @@ export function AIChatPanel({
         </button>
       </div>
 
-      <div className="flex-1 space-y-4 overflow-y-auto p-4">
+      <div ref={scrollRef} className="flex-1 space-y-4 overflow-y-auto p-4">
         {messages.map((message) => (
           <div
             key={message.id}
@@ -66,6 +79,19 @@ export function AIChatPanel({
               >
                 <p className="whitespace-pre-wrap text-sm">{message.content}</p>
               </div>
+              {message.role === "assistant" && message.analysis && (
+                <div className="flex flex-wrap gap-1 text-[10px] text-gray-500">
+                  <span className="rounded-full bg-gray-100 px-2 py-0.5">
+                    {message.analysis.complexity_level}
+                  </span>
+                  <span className="rounded-full bg-gray-100 px-2 py-0.5">
+                    {message.analysis.input_type}
+                  </span>
+                  <span className="rounded-full bg-gray-100 px-2 py-0.5">
+                    confidence {Math.round(message.analysis.confidence * 100)}%
+                  </span>
+                </div>
+              )}
               {message.role === "assistant" && message.workflowDraft && (
                 <div className="rounded-lg border border-purple-200 bg-purple-50 p-3">
                   <p className="mb-2 text-xs font-semibold text-purple-900">
@@ -76,7 +102,12 @@ export function AIChatPanel({
                     {message.workflowDraft.steps?.length ?? 0} step(s)
                   </p>
                   <button
-                    onClick={() => onApplyDraft?.(message.workflowDraft!)}
+                    onClick={() =>
+                      onApplyDraft?.(
+                        message.workflowDraft!,
+                        message.suggestionId,
+                      )
+                    }
                     className="inline-flex items-center gap-1 rounded-md bg-purple-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-purple-700"
                   >
                     <Wand2 className="h-3 w-3" />
