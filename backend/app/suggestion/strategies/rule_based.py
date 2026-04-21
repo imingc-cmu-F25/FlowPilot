@@ -4,13 +4,41 @@ from __future__ import annotations
 
 import re
 from datetime import UTC, datetime, timedelta
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from app.suggestion.base import SuggestionResult, UserInput
 from app.suggestion.strategies.base import SuggestionStrategy
 
 
+def _resolve_zone(tz_name: str | None) -> ZoneInfo:
+    """Best-effort IANA timezone lookup; falls back to UTC silently.
+
+    The frontend should always send a valid zone, but a malformed value
+    must not crash the suggestion pipeline — UTC is the safe default
+    matching the prior pre-timezone behaviour.
+    """
+    if not tz_name:
+        return ZoneInfo("UTC")
+    try:
+        return ZoneInfo(tz_name)
+    except ZoneInfoNotFoundError:
+        return ZoneInfo("UTC")
+
+
 def _extract_hour(text: str) -> int:
-    m = re.search(r"(\d{1,2})\s*(am|pm)?", text.lower())
+    """Pull an "at HH am/pm" hour out of the prompt.
+
+    Bare digits anywhere in the text (email handles like alice2@acme.com,
+    or '30' inside 'after 30 seconds') used to be claimed as the hour,
+    which silently shifted the schedule. Now we require either an
+    am/pm suffix or an explicit "at" anchor.
+    """
+    lower = text.lower()
+    # First preference: explicit `at HH(:MM)? (am|pm)?`.
+    m = re.search(r"\bat\s+(\d{1,2})(?::\d{2})?\s*(am|pm)?\b", lower)
+    # Fallback: any `HH am/pm` standalone.
+    if not m:
+        m = re.search(r"\b(\d{1,2})\s*(am|pm)\b", lower)
     if not m:
         return 9
     hour = int(m.group(1))
@@ -82,12 +110,27 @@ def _extract_calendar_title(text: str) -> str:
     return ""
 
 
-def _next_iso_at_hour(hour: int) -> str:
-    now = datetime.now(UTC)
-    target = now.replace(hour=hour, minute=0, second=0, microsecond=0)
-    if target <= now:
-        target += timedelta(days=1)
-    return target.isoformat()
+def _next_iso_at_hour(hour: int, tz_name: str | None = None) -> str:
+    """ISO datetime for the next HH:00 in the user's local timezone,
+    serialised as an absolute (UTC-converted) instant."""
+    zone = _resolve_zone(tz_name)
+    now_local = datetime.now(zone)
+    target_local = now_local.replace(hour=hour, minute=0, second=0, microsecond=0)
+    if target_local <= now_local:
+        target_local += timedelta(days=1)
+    return target_local.astimezone(UTC).isoformat()
+
+
+def _iso_at_hour_on_date(
+    hour: int, *, days_offset: int, tz_name: str | None = None
+) -> str:
+    """ISO datetime at HH:00 in the user's local timezone, `days_offset`
+    days from today, serialised as a UTC instant."""
+    zone = _resolve_zone(tz_name)
+    target_local = (datetime.now(zone) + timedelta(days=days_offset)).replace(
+        hour=hour, minute=0, second=0, microsecond=0
+    )
+    return target_local.astimezone(UTC).isoformat()
 
 
 def _iso_after_minutes(minutes: int) -> str:
@@ -102,8 +145,50 @@ def _iso_after_seconds(seconds: int) -> str:
 # Draft builders
 # ---------------------------------------------------------------------------
 
-def _build_delayed_email_draft(text: str) -> dict:
-    """'send email after N minutes'"""
+def _build_one_time_email_at_hour_draft(text: str, *, tz_name: str | None = None) -> dict:
+    """'send email to X at 9AM tomorrow' — one-time time trigger."""
+    hour = _extract_hour(text)
+    lower = text.lower()
+    zone = _resolve_zone(tz_name)
+    days_offset = 1 if "tomorrow" in lower else 0
+    # If the user said "today" but the hour has already passed in their
+    # local timezone, schedule tomorrow instead — otherwise the trigger
+    # fires in the past and would be skipped by the scheduler.
+    if days_offset == 0:
+        if hour <= datetime.now(zone).hour:
+            days_offset = 1
+    to = _extract_email(text)
+    subject = _extract_subject(text) or "Scheduled email"
+    body = _extract_body(text) or f"This is your scheduled {hour}:00 email."
+    when = "tomorrow" if days_offset == 1 else "today"
+    return {
+        "name": f"Send Email at {hour}:00 ({when})",
+        "description": (
+            f"Sends a one-time email at {hour}:00 {tz_name or 'UTC'} {when}."
+        ),
+        "trigger": {
+            "type": "time",
+            "trigger_at": _iso_at_hour_on_date(
+                hour, days_offset=days_offset, tz_name=tz_name
+            ),
+            "timezone": tz_name or "UTC",
+            "recurrence": None,
+        },
+        "steps": [
+            {
+                "action_type": "send_email",
+                "name": "Send Scheduled Email",
+                "step_order": 0,
+                "to_template": to,
+                "subject_template": subject,
+                "body_template": body,
+            }
+        ],
+    }
+
+
+def _build_delayed_email_draft(text: str, *, tz_name: str | None = None) -> dict:
+    """'send email after N minutes' — relative delay, timezone irrelevant."""
     minutes = _extract_minutes(text) or 5
     to = _extract_email(text)
     subject = _extract_subject(text) or "Scheduled Notification"
@@ -134,7 +219,7 @@ def _build_delayed_email_draft(text: str) -> dict:
     }
 
 
-def _build_delayed_email_seconds_draft(text: str) -> dict:
+def _build_delayed_email_seconds_draft(text: str, *, tz_name: str | None = None) -> dict:
     """'send email after N seconds' — sub-minute delayed email."""
     seconds = _extract_delay_seconds(text) or 30
     to = _extract_email(text)
@@ -166,18 +251,19 @@ def _build_delayed_email_seconds_draft(text: str) -> dict:
     }
 
 
-def _build_daily_email_draft(text: str) -> dict:
+def _build_daily_email_draft(text: str, *, tz_name: str | None = None) -> dict:
     hour = _extract_hour(text)
     to = _extract_email(text)
     subject = _extract_subject(text) or "Daily Update"
     body = _extract_body(text) or "Here is your daily update summary."
+    tz_label = tz_name or "UTC"
     return {
         "name": "Daily Email",
-        "description": f"Sends a daily email at {hour}:00 UTC.",
+        "description": f"Sends a daily email at {hour}:00 {tz_label}.",
         "trigger": {
             "type": "time",
-            "trigger_at": _next_iso_at_hour(hour),
-            "timezone": "UTC",
+            "trigger_at": _next_iso_at_hour(hour, tz_name=tz_name),
+            "timezone": tz_label,
             "recurrence": {
                 "frequency": "daily",
                 "interval": 1,
@@ -198,18 +284,19 @@ def _build_daily_email_draft(text: str) -> dict:
     }
 
 
-def _build_weekly_email_draft(text: str) -> dict:
+def _build_weekly_email_draft(text: str, *, tz_name: str | None = None) -> dict:
     hour = _extract_hour(text)
     to = _extract_email(text)
     subject = _extract_subject(text) or "Weekly Summary"
     body = _extract_body(text) or "Here is your weekly summary report."
+    tz_label = tz_name or "UTC"
     return {
         "name": "Weekly Email",
-        "description": f"Sends a weekly email at {hour}:00 UTC every Monday.",
+        "description": f"Sends a weekly email at {hour}:00 {tz_label} every Monday.",
         "trigger": {
             "type": "time",
-            "trigger_at": _next_iso_at_hour(hour),
-            "timezone": "UTC",
+            "trigger_at": _next_iso_at_hour(hour, tz_name=tz_name),
+            "timezone": tz_label,
             "recurrence": {
                 "frequency": "weekly",
                 "interval": 1,
@@ -230,7 +317,7 @@ def _build_weekly_email_draft(text: str) -> dict:
     }
 
 
-def _build_webhook_to_email_draft(text: str) -> dict:
+def _build_webhook_to_email_draft(text: str, *, tz_name: str | None = None) -> dict:
     to = _extract_email(text)
     subject = _extract_subject(text) or "Incoming Webhook Notification"
     body = _extract_body(text) or "Webhook payload received:\n\n{{previous_output}}"
@@ -257,7 +344,7 @@ def _build_webhook_to_email_draft(text: str) -> dict:
     }
 
 
-def _build_webhook_to_api_draft(text: str) -> dict:
+def _build_webhook_to_api_draft(text: str, *, tz_name: str | None = None) -> dict:
     url = _extract_url(text)
     return {
         "name": "Webhook to API Call",
@@ -282,7 +369,7 @@ def _build_webhook_to_api_draft(text: str) -> dict:
     }
 
 
-def _build_interval_trigger_draft(text: str) -> dict:
+def _build_interval_trigger_draft(text: str, *, tz_name: str | None = None) -> dict:
     interval, unit = _extract_interval(text)
     freq_map = {"minute": "minutely", "hour": "hourly", "day": "daily", "week": "weekly"}
     frequency = freq_map.get(unit, "hourly")
@@ -314,7 +401,7 @@ def _build_interval_trigger_draft(text: str) -> dict:
     }
 
 
-def _build_health_check_draft(text: str) -> dict:
+def _build_health_check_draft(text: str, *, tz_name: str | None = None) -> dict:
     url = _extract_url(text)
     to = _extract_email(text)
     subject = _extract_subject(text) or "Health Check Result"
@@ -365,7 +452,7 @@ def _build_health_check_draft(text: str) -> dict:
     }
 
 
-def _build_http_call_draft(text: str) -> dict:
+def _build_http_call_draft(text: str, *, tz_name: str | None = None) -> dict:
     url = _extract_url(text)
     return {
         "name": "HTTP API Call",
@@ -390,7 +477,7 @@ def _build_http_call_draft(text: str) -> dict:
     }
 
 
-def _build_fetch_and_email_draft(text: str) -> dict:
+def _build_fetch_and_email_draft(text: str, *, tz_name: str | None = None) -> dict:
     url = _extract_url(text)
     to = _extract_email(text)
     subject = _extract_subject(text) or "Data Report"
@@ -400,8 +487,8 @@ def _build_fetch_and_email_draft(text: str) -> dict:
         "description": "Fetches data from an API and emails the results.",
         "trigger": {
             "type": "time",
-            "trigger_at": _next_iso_at_hour(_extract_hour(text)),
-            "timezone": "UTC",
+            "trigger_at": _next_iso_at_hour(_extract_hour(text), tz_name=tz_name),
+            "timezone": tz_name or "UTC",
             "recurrence": None,
         },
         "steps": [
@@ -425,7 +512,7 @@ def _build_fetch_and_email_draft(text: str) -> dict:
     }
 
 
-def _build_daily_schedule_email_draft(text: str) -> dict:
+def _build_daily_schedule_email_draft(text: str, *, tz_name: str | None = None) -> dict:
     """'every morning email me today's schedule / calendar / agenda'."""
     hour = _extract_hour(text) or 8
     to = _extract_email(text)
@@ -434,16 +521,17 @@ def _build_daily_schedule_email_draft(text: str) -> dict:
         _extract_body(text)
         or "Here are your upcoming calendar events:\n\n{{previous_output}}"
     )
+    tz_label = tz_name or "UTC"
     return {
         "name": "Daily Schedule Email",
         "description": (
-            f"Each day at {hour}:00 UTC, fetch upcoming calendar "
+            f"Each day at {hour}:00 {tz_label}, fetch upcoming calendar "
             f"events and email them."
         ),
         "trigger": {
             "type": "time",
-            "trigger_at": _next_iso_at_hour(hour),
-            "timezone": "UTC",
+            "trigger_at": _next_iso_at_hour(hour, tz_name=tz_name),
+            "timezone": tz_label,
             "recurrence": {
                 "frequency": "daily",
                 "interval": 1,
@@ -473,7 +561,7 @@ def _build_daily_schedule_email_draft(text: str) -> dict:
     }
 
 
-def _build_calendar_event_to_email_draft(text: str) -> dict:
+def _build_calendar_event_to_email_draft(text: str, *, tz_name: str | None = None) -> dict:
     """'when a calendar event (titled X) shows up, email me / notify ...'."""
     to = _extract_email(text)
     title_contains = _extract_calendar_title(text)
@@ -519,6 +607,21 @@ class RuleBasedStrategy(SuggestionStrategy):
     """Matches hard-coded regex patterns against raw_text. Returns preset drafts."""
 
     RULES: list[tuple[str, callable]] = [
+        # one-time scheduled email: "send email at 9am tomorrow" / "today
+        # at 9am email me ...". Must come BEFORE the daily-email rules so
+        # "tomorrow" doesn't get mis-classified as "every day".
+        (
+            r"(send|email).*\bat\s+\d{1,2}\s*(am|pm)\b.*\b(tomorrow|today)\b",
+            _build_one_time_email_at_hour_draft,
+        ),
+        (
+            r"\b(tomorrow|today)\b.*\bat\s+\d{1,2}\s*(am|pm)\b.*(send|email)",
+            _build_one_time_email_at_hour_draft,
+        ),
+        (
+            r"(send|email).*\b(tomorrow|today)\b.*\b\d{1,2}\s*(am|pm)\b",
+            _build_one_time_email_at_hour_draft,
+        ),
         # delayed email (seconds): "send email after 30 seconds". Must come
         # BEFORE the minute-based rule because the minute regex doesn't
         # match "sec(ond)s" — but guarding explicitly makes ordering safe
@@ -587,6 +690,20 @@ class RuleBasedStrategy(SuggestionStrategy):
         (r"(when|on).*(webhook|hook).*(call|api|deploy)", _build_webhook_to_api_draft),
         # interval-based
         (r"(every|each)\s+\d+\s+(minute|hour|day|week)", _build_interval_trigger_draft),
+        # one-time email "at HH am/pm" with NO day anchor — comes AFTER
+        # daily/weekly rules so "send daily email at 9am" doesn't get
+        # mis-classified as one-time. The builder auto-picks today vs
+        # tomorrow based on whether the hour has already passed in the
+        # user's timezone, so "at 11PM" said in the morning fires today
+        # while the same prompt at midnight rolls to tomorrow.
+        (
+            r"(send|email).*\bat\s+\d{1,2}\s*(am|pm)\b",
+            _build_one_time_email_at_hour_draft,
+        ),
+        (
+            r"\bat\s+\d{1,2}\s*(am|pm)\b.*(send|email)",
+            _build_one_time_email_at_hour_draft,
+        ),
         # generic HTTP call
         (r"(call|request|fetch|hit).*(api|url|endpoint)", _build_http_call_draft),
     ]
@@ -603,7 +720,7 @@ class RuleBasedStrategy(SuggestionStrategy):
         match_text = self._strip_quoted(text)
         for pattern, builder in self.RULES:
             if re.search(pattern, match_text, re.IGNORECASE):
-                draft = builder(text)
+                draft = builder(text, tz_name=user_input.timezone)
                 return SuggestionResult(
                     content=(
                         f"Matched a known pattern. Created a draft workflow "

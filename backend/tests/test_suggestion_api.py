@@ -141,6 +141,67 @@ def test_accept_suggestion_returns_draft():
     assert res.json()["workflow_draft"] is not None
 
 
+def test_accept_rejects_draft_with_invalid_step():
+    """Steps that fail real ActionStepFactory validation must surface as
+    422 on accept rather than waiting for /api/workflows to reject them."""
+    headers = _alice_auth_headers()
+    create_res = client.post(
+        "/api/suggestions",
+        json={"raw_text": "daily email to a@b.com", "user_name": "alice"},
+        headers=headers,
+    )
+    sid = create_res.json()["id"]
+
+    db = new_session()
+    try:
+        orm = SuggestionRepository(db).get(uuid.UUID(sid))
+        bad_draft = dict(orm.workflow_draft or {})
+        bad_draft["steps"] = [{
+            "action_type": "send_email",
+            "name": "broken",
+            "step_order": 0,
+            # to_template / subject_template / body_template all missing
+            # — SendEmailActionStep should reject this.
+        }]
+        orm.workflow_draft = bad_draft
+        db.commit()
+    finally:
+        db.close()
+
+    res = client.post(f"/api/suggestions/{sid}/accept", headers=headers)
+    assert res.status_code == 422
+    assert "step" in str(res.json()["detail"]).lower()
+
+
+def test_accept_returns_workflow_payload_in_api_shape():
+    """The accept response includes a workflow_payload field that is
+    POST-able verbatim to /api/workflows — i.e. nested {parameters: {...}}
+    shape, not the flat draft shape."""
+    headers = _alice_auth_headers()
+    create_res = client.post(
+        "/api/suggestions",
+        json={"raw_text": "send daily email to ops@acme.com", "user_name": "alice"},
+        headers=headers,
+    )
+    sid = create_res.json()["id"]
+
+    accept_res = client.post(f"/api/suggestions/{sid}/accept", headers=headers)
+    assert accept_res.status_code == 200, accept_res.json()
+    payload = accept_res.json()["workflow_payload"]
+
+    # Trigger and step shapes must already match the /api/workflows API.
+    assert payload["trigger"]["type"] == "time"
+    assert "parameters" in payload["trigger"]
+    assert "trigger_at" in payload["trigger"]["parameters"]
+    assert payload["steps"][0]["action_type"] == "send_email"
+    assert "parameters" in payload["steps"][0]
+    assert payload["steps"][0]["parameters"]["to_template"] == "ops@acme.com"
+
+    # And the very same payload should round-trip through POST /api/workflows.
+    create_wf = client.post("/api/workflows", json=payload)
+    assert create_wf.status_code == 201, create_wf.json()
+
+
 def test_accept_rejects_draft_with_invalid_trigger():
     """The accept endpoint must surface bad trigger config as 422 instead of
     happily handing the user a draft that /api/workflows would later reject."""
@@ -202,6 +263,91 @@ def test_accept_link_records_workflow_id():
     # Confirm persistence by re-reading the suggestion through the GET path.
     get_res = client.get(f"/api/suggestions/{sid}", headers=headers)
     assert get_res.json()["accepted_workflow_id"] == wf_id
+
+
+def test_create_webhook_suggestion_emits_pending_question_for_path():
+    """Webhook drafts emitted by rule_based default to /hooks/incoming —
+    that's a sentinel, not a real answer. The service should flag it as
+    a pending question so the UI prompts the user for a real path."""
+    headers = _alice_auth_headers()
+    res = client.post(
+        "/api/suggestions",
+        json={
+            "raw_text": "webhook trigger forward payload to ops@acme.com",
+            "user_name": "alice",
+        },
+        headers=headers,
+    )
+    assert res.status_code == 201, res.json()
+    body = res.json()
+    questions = body["pending_questions"]
+    fields = [q["field"] for q in questions]
+    assert "trigger.path" in fields
+
+
+def test_accept_blocked_while_pending_questions_remain():
+    headers = _alice_auth_headers()
+    create_res = client.post(
+        "/api/suggestions",
+        json={
+            "raw_text": "webhook forward to ops@acme.com",
+            "user_name": "alice",
+        },
+        headers=headers,
+    )
+    sid = create_res.json()["id"]
+    accept_res = client.post(f"/api/suggestions/{sid}/accept", headers=headers)
+    assert accept_res.status_code == 422
+    detail = accept_res.json()["detail"]
+    assert "pending_questions" in detail
+    assert detail["pending_questions"][0]["field"] == "trigger.path"
+
+
+def test_answer_endpoint_clears_question_and_unblocks_accept():
+    headers = _alice_auth_headers()
+    create_res = client.post(
+        "/api/suggestions",
+        json={
+            "raw_text": "webhook forward to ops@acme.com",
+            "user_name": "alice",
+        },
+        headers=headers,
+    )
+    sid = create_res.json()["id"]
+
+    answer_res = client.post(
+        f"/api/suggestions/{sid}/answer",
+        json={"answers": {"trigger.path": "/hooks/github-push"}},
+        headers=headers,
+    )
+    assert answer_res.status_code == 200, answer_res.json()
+    body = answer_res.json()
+    assert body["pending_questions"] == []
+    assert body["workflow_draft"]["trigger"]["path"] == "/hooks/github-push"
+
+    # And accept now succeeds.
+    accept_res = client.post(f"/api/suggestions/{sid}/accept", headers=headers)
+    assert accept_res.status_code == 200, accept_res.json()
+
+
+def test_answer_endpoint_rejects_unknown_field():
+    headers = _alice_auth_headers()
+    create_res = client.post(
+        "/api/suggestions",
+        json={
+            "raw_text": "webhook forward to ops@acme.com",
+            "user_name": "alice",
+        },
+        headers=headers,
+    )
+    sid = create_res.json()["id"]
+    res = client.post(
+        f"/api/suggestions/{sid}/answer",
+        json={"answers": {"trigger.path": "/hooks/x", "evil.field": "boom"}},
+        headers=headers,
+    )
+    assert res.status_code == 422
+    assert "evil.field" in str(res.json()["detail"])
 
 
 def test_accept_link_unknown_workflow_returns_404():

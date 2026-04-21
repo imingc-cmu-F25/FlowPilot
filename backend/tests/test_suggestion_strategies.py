@@ -2,6 +2,7 @@
 
 import asyncio
 
+import pytest
 from app.suggestion.base import UserInput
 from app.suggestion.strategies.llm import LLMStrategy, _validate_and_fix
 from app.suggestion.strategies.rule_based import RuleBasedStrategy
@@ -320,6 +321,126 @@ def test_rule_based_matches_delayed_email_seconds():
     assert draft["steps"][0]["to_template"] == "yianchen189@gmail.com"
 
 
+def test_rule_based_does_not_treat_email_digits_as_hour():
+    """Regression: '_extract_hour' previously matched any digit, so an
+    email handle like 'alice2@acme.com' was parsed as 2 AM and the daily
+    schedule fired at the wrong time. The anchored regex requires
+    am/pm or 'at HH'."""
+    strategy = RuleBasedStrategy()
+    result = asyncio.run(
+        strategy.generate_suggestion(
+            UserInput(raw_text="send a daily email to alice2@acme.com")
+        )
+    )
+    assert result.workflow_draft is not None
+    # No explicit hour in the prompt → default 9 AM.
+    description = result.workflow_draft["description"]
+    assert "9:00" in description, description
+
+
+def test_rule_based_matches_one_time_email_tomorrow():
+    """Regression: 'send email at 9AM tomorrow' used to fall through to the
+    LLM and trigger the Groq tool-call refusal scolding. Rule_based now
+    handles it directly."""
+    strategy = RuleBasedStrategy()
+    result = asyncio.run(
+        strategy.generate_suggestion(
+            UserInput(
+                raw_text="send an email to imingc@andrew.cmu.edu at 9AM tomorrow"
+            )
+        )
+    )
+    assert result.workflow_draft is not None
+    draft = result.workflow_draft
+    assert draft["trigger"]["type"] == "time"
+    assert draft["trigger"]["recurrence"] is None
+    assert "tomorrow" in draft["name"].lower()
+    assert draft["steps"][0]["to_template"] == "imingc@andrew.cmu.edu"
+
+
+def test_rule_based_matches_bare_at_hour_no_day_anchor():
+    """Regression: 'send email to X at 11PM' (no tomorrow/today) should
+    hit rule_based, not fall through to LLM. Previously the LLM was
+    interpreting bare hours in UTC, producing schedules at the wrong
+    time."""
+    strategy = RuleBasedStrategy()
+    result = asyncio.run(
+        strategy.generate_suggestion(
+            UserInput(
+                raw_text="send an email to yiranchen189@gmail.com at 11PM",
+                timezone="America/Los_Angeles",
+            )
+        )
+    )
+    assert result.workflow_draft is not None
+    assert result.strategy_used == "rule_based"
+    draft = result.workflow_draft
+    assert draft["trigger"]["type"] == "time"
+    assert draft["trigger"]["recurrence"] is None
+    # 11 PM Pacific = 06:00 UTC (PDT) or 07:00 UTC (PST). Must NOT be
+    # 23:00 UTC (which would be the bug we're fixing).
+    trigger_at = draft["trigger"]["trigger_at"]
+    assert "T06:00:00" in trigger_at or "T07:00:00" in trigger_at, trigger_at
+    assert "T23:00:00" not in trigger_at
+
+
+def test_rule_based_resolves_local_timezone_for_one_time_trigger():
+    """'9 AM tomorrow' with timezone='America/Los_Angeles' should produce
+    a trigger_at corresponding to 9 AM PT (16:00 or 17:00 UTC depending
+    on DST), NOT 9 AM UTC. Regression for the issue where users in PDT
+    saw their schedule fire 7 hours early."""
+    strategy = RuleBasedStrategy()
+    result = asyncio.run(
+        strategy.generate_suggestion(
+            UserInput(
+                raw_text="send an email to me@acme.com at 9AM tomorrow",
+                timezone="America/Los_Angeles",
+            )
+        )
+    )
+    assert result.workflow_draft is not None
+    trigger_at = result.workflow_draft["trigger"]["trigger_at"]
+    # America/Los_Angeles is UTC-7 (PDT) or UTC-8 (PST). 9 AM local =
+    # either 16:00 or 17:00 UTC. Must NOT be 09:00 UTC.
+    assert "T16:00:00" in trigger_at or "T17:00:00" in trigger_at, trigger_at
+    assert "T09:00:00+00:00" not in trigger_at
+    # Trigger.timezone should record the user's zone (not silently UTC).
+    assert result.workflow_draft["trigger"]["timezone"] == "America/Los_Angeles"
+
+
+def test_rule_based_falls_back_to_utc_when_no_timezone():
+    """Pre-existing behaviour: with no timezone the schedule is UTC."""
+    strategy = RuleBasedStrategy()
+    result = asyncio.run(
+        strategy.generate_suggestion(
+            UserInput(raw_text="send an email to me@acme.com at 9AM tomorrow")
+        )
+    )
+    assert result.workflow_draft is not None
+    trigger_at = result.workflow_draft["trigger"]["trigger_at"]
+    assert "T09:00:00+00:00" in trigger_at
+    assert result.workflow_draft["trigger"]["timezone"] == "UTC"
+
+
+def test_rule_based_does_not_treat_seconds_as_hour():
+    """Regression: 'after 30 seconds' would set hour=30 (clamped to 23)."""
+    strategy = RuleBasedStrategy()
+    result = asyncio.run(
+        strategy.generate_suggestion(
+            UserInput(
+                raw_text="send daily email to ops@acme.com after 30 seconds"
+            )
+        )
+    )
+    # Prompt ambiguity here — but importantly, the hour must NOT be 30/23/0.
+    # We expect either the seconds-delay rule (fires once) OR the daily rule
+    # at 9 AM. Both are acceptable; "0:00 UTC" or "23:00 UTC" are not.
+    if result.workflow_draft is not None:
+        description = result.workflow_draft["description"]
+        assert "0:00" not in description
+        assert "23:00" not in description
+
+
 def test_template_picks_delayed_email_seconds():
     strategy = TemplateStrategy()
     result = asyncio.run(
@@ -417,6 +538,31 @@ def test_validate_and_fix_fills_time_trigger_defaults():
     assert fixed["trigger"]["recurrence"] is None
     assert fixed["steps"][0]["step_order"] == 0
     assert "to_template" in fixed["steps"][0]
+
+
+def test_validate_and_fix_rejects_recurring_trigger_without_trigger_at():
+    """Regression: a recurring trigger anchored to 'now + 1h' would fire at
+    a random minute the user never asked for. Refuse instead."""
+    from app.suggestion.strategies.llm import DraftFillError
+
+    draft = {
+        "trigger": {
+            "type": "time",
+            "recurrence": {"frequency": "daily", "interval": 1},
+        },
+        "steps": [{"action_type": "send_email"}],
+    }
+    with pytest.raises(DraftFillError):
+        _validate_and_fix(draft)
+
+
+def test_validate_and_fix_keeps_one_time_default_when_no_recurrence():
+    """One-time triggers without trigger_at can still default to soon —
+    only recurrence makes 'silent default' dangerous."""
+    draft = {"trigger": {"type": "time"}, "steps": []}
+    fixed = _validate_and_fix(draft)
+    assert fixed["trigger"]["trigger_at"] is not None
+    assert fixed["trigger"]["recurrence"] is None
 
 
 def test_validate_and_fix_fills_webhook_trigger_defaults():

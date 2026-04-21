@@ -6,7 +6,7 @@ import json
 from datetime import UTC, datetime, timedelta
 
 from app.suggestion.base import SuggestionResult, UserInput
-from app.suggestion.openai_client import OPENAI_MODEL, get_openai_client
+from app.suggestion.openai_client import get_openai_client, get_openai_model
 from app.suggestion.strategies.base import SuggestionStrategy
 
 _WORKFLOW_SCHEMA = {
@@ -54,7 +54,11 @@ _WORKFLOW_SCHEMA = {
                             "description": "IANA timezone name, e.g. UTC, America/New_York",
                         },
                         "recurrence": {
-                            "type": "object",
+                            # Explicit nullable so strict validators
+                            # (Groq) don't reject a one-time trigger.
+                            # OpenAI tolerates null on `type:"object"`,
+                            # Groq enforces JSON-schema-strict.
+                            "type": ["object", "null"],
                             "description": (
                                 "Optional recurring schedule."
                                 " Omit or set null for"
@@ -331,9 +335,23 @@ class LLMStrategy(SuggestionStrategy):
 
     SYSTEM_PROMPT = (
         "You are FlowPilot's intelligent workflow builder. "
-        "The current UTC time is {current_utc}.\n\n"
+        "The current UTC time is {current_utc}. "
+        "The user's local timezone is {user_timezone}. "
+        "When the user says a bare time like '9 AM' or '11 PM' WITHOUT "
+        "mentioning UTC, interpret it as that wall-clock time IN THE USER'S "
+        "TIMEZONE, then convert to the equivalent UTC instant for "
+        "trigger_at. Example: user is in America/Los_Angeles and says "
+        "'9 AM tomorrow' → trigger_at is tomorrow's 09:00 PT, which is "
+        "16:00 UTC (PDT) or 17:00 UTC (PST). Set trigger.timezone to the "
+        "user's IANA zone, not 'UTC'.\n\n"
         "Your job: convert the user's natural-language request into a COMPLETE, READY-TO-USE "
         "workflow definition by calling the build_workflow function.\n\n"
+        "## Hard requirement\n"
+        "You MUST call the `build_workflow` function. NEVER reply with plain "
+        "text. If a field is genuinely uncertain, make the best reasonable "
+        "guess and put a one-sentence note in the workflow `description` "
+        "field explaining what you assumed. The user will see the draft in "
+        "a builder UI and can correct anything before saving.\n\n"
         "## Platform capabilities\n"
         "**Triggers** (how a workflow starts):\n"
         "- `time` — run at a specific datetime, optionally recurring "
@@ -361,14 +379,22 @@ class LLMStrategy(SuggestionStrategy):
         "   - Compute `trigger_at` as an exact ISO-8601 UTC datetime. "
         "Examples: 'after 5 minutes' → current time + 5 min; 'tomorrow 9am' → next 09:00 UTC; "
         "'every Monday' → next Monday 09:00 UTC.\n"
-        "   - Set `recurrence` when the user wants it repeated. Pick the right frequency "
-        "and interval. For 'every weekday' use custom cron '0 9 * * 1-5'.\n"
-        "   - Omit `recurrence` (or set null) for one-time tasks.\n"
-        "   - `recurrence: null` is VALID and is the correct value for a one-time trigger. "
-        "NEVER describe a missing or null `recurrence` as an error, and never instruct the "
-        "user to 'fix' it by adding one. If the user's phrasing is ambiguous about whether "
-        "the task should repeat (e.g. 'send an email at 9:00' could be once or daily), "
-        "ask the user to clarify instead of treating either choice as wrong.\n"
+        "   - Set `recurrence` when the user EXPLICITLY uses a repetition word "
+        "(every, each, daily, weekly, monthly, hourly, recurring). Pick the "
+        "right frequency and interval. For 'every weekday' use custom cron "
+        "'0 9 * * 1-5'.\n"
+        "   - For one-time triggers set `recurrence: null`. `recurrence: "
+        "null` is VALID — NEVER describe it as an error or 'missing field', "
+        "and NEVER tell the user to 'provide a recurrence object'.\n"
+        "   - Phrases that UNAMBIGUOUSLY mean one-time (set recurrence=null "
+        "and call the function immediately, do NOT ask for clarification): "
+        "'tomorrow', 'today', 'next Monday/Tuesday/...', any explicit date, "
+        "'in N minutes/seconds/hours', 'after N minutes/seconds/hours'.\n"
+        "   - The ONLY ambiguous case is a bare time-of-day with no date "
+        "anchor and no repetition verb (e.g. 'at 9am' alone). Even then, "
+        "DEFAULT to one-time tomorrow at that time and add a note in "
+        "`description` like 'Assumed one-time tomorrow; change to recurring "
+        "if you wanted that.' Do NOT refuse to call the function.\n"
         "5. For WEBHOOK triggers:\n"
         "   - Set a meaningful `path` starting with / (e.g. /hooks/github-push).\n"
         "   - Set `method` (default POST). Use `event_filter` if the user specifies event types.\n"
@@ -426,10 +452,11 @@ class LLMStrategy(SuggestionStrategy):
 
         try:
             response = await client.chat.completions.create(
-                model=OPENAI_MODEL,
+                model=get_openai_model(),
                 messages=[
                     {"role": "system", "content": self.SYSTEM_PROMPT.format(
                         current_utc=datetime.now(UTC).isoformat(),
+                        user_timezone=user_input.timezone or "UTC",
                     )},
                     {"role": "user", "content": user_input.raw_text},
                 ],
@@ -461,7 +488,18 @@ class LLMStrategy(SuggestionStrategy):
                 )
             raw_args = message.tool_calls[0].function.arguments
             draft = json.loads(raw_args)
-            draft = _validate_and_fix(draft)
+            try:
+                draft = _validate_and_fix(draft)
+            except DraftFillError as exc:
+                # The model returned a structurally incomplete draft (e.g.
+                # recurring time trigger with no trigger_at). Don't silently
+                # invent values — surface the gap so the user can fix the
+                # phrasing, otherwise the workflow fires at a random time.
+                return SuggestionResult(
+                    content=str(exc),
+                    workflow_draft=None,
+                    strategy_used="llm",
+                )
             return SuggestionResult(
                 content="Generated a custom workflow based on your request.",
                 workflow_draft=draft,
@@ -475,6 +513,11 @@ class LLMStrategy(SuggestionStrategy):
             )
 
 
+class DraftFillError(ValueError):
+    """Raised when the LLM-emitted draft is missing fields we refuse to
+    invent (e.g. trigger_at on a recurring time trigger)."""
+
+
 def _validate_and_fix(draft: dict) -> dict:
     """Ensure required fields exist and have sensible defaults."""
     draft.setdefault("name", "AI-Generated Workflow")
@@ -483,7 +526,20 @@ def _validate_and_fix(draft: dict) -> dict:
     trigger = draft.get("trigger") or {}
     t_type = trigger.get("type", "time")
     if t_type == "time":
-        trigger.setdefault("trigger_at", _default_future_iso())
+        # One-time triggers can fall back to "1h from now" — that's only a
+        # convenience and the user will see the time in the builder before
+        # confirming. But a *recurring* trigger silently anchored to a
+        # random future minute means the workflow fires at the wrong time
+        # forever. Better to refuse and ask the user to clarify.
+        recurrence = trigger.get("recurrence")
+        if "trigger_at" not in trigger or trigger["trigger_at"] in (None, ""):
+            if recurrence:
+                raise DraftFillError(
+                    "I couldn't tell when the recurring schedule should "
+                    "start. Add a clear time, e.g. 'every Monday at 9am' "
+                    "or 'daily at 7:30am UTC'."
+                )
+            trigger["trigger_at"] = _default_future_iso()
         trigger.setdefault("timezone", "UTC")
         trigger.setdefault("recurrence", None)
     elif t_type == "webhook":

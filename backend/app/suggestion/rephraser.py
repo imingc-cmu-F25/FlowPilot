@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from app.suggestion.base import SuggestionResult
-from app.suggestion.openai_client import OPENAI_MODEL, get_openai_client
+from app.suggestion.openai_client import get_openai_client, get_openai_model
 
 
 class AIRephraser:
@@ -19,7 +19,7 @@ class AIRephraser:
             return result
         try:
             response = await client.chat.completions.create(
-                model=OPENAI_MODEL,
+                model=get_openai_model(),
                 messages=[
                     {"role": "system", "content": self.SYSTEM_PROMPT},
                     {"role": "user", "content": result.content},

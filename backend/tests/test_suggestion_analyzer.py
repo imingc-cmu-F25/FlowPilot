@@ -66,3 +66,22 @@ def test_analyzer_long_complex_input():
     result = asyncio.run(AIAnalyzer().analyze(UserInput(raw_text=long_text)))
     assert result.complexity_level == "complex"
     assert result.confidence < 0.7
+
+
+@pytest.mark.parametrize(
+    "raw_text",
+    [
+        "tell me a joke about cats",
+        "what is the meaning of life",
+        "hello how are you doing",
+        "explain quantum physics please",
+        # English keyboard mash — only stray latin letters, no workflow words.
+        "asdfgh qwerty zxcvb hjkl",
+    ],
+)
+def test_analyzer_flags_off_topic_input_as_other_high_confidence(raw_text):
+    """The relevance gate must mark non-workflow input as 'other' with high
+    confidence so the service layer can short-circuit the pipeline."""
+    result = asyncio.run(AIAnalyzer().analyze(UserInput(raw_text=raw_text)))
+    assert result.input_type == "other"
+    assert result.confidence >= 0.8

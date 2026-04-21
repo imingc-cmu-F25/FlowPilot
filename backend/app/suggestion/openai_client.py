@@ -38,4 +38,19 @@ def get_openai_client():
     return _cached_client
 
 
-OPENAI_MODEL = settings.openai_model or "gpt-4o-mini"
+def get_openai_model() -> str:
+    """Return the configured OpenAI model name, evaluated lazily.
+
+    Module-level constants captured `settings.openai_model` at import time,
+    which broke runtime overrides (tests / hot reloads) and made the
+    container env vs .env mismatch story confusing. Read fresh on every
+    call — the cost is one attribute access per LLM request.
+    """
+    return settings.openai_model or "gpt-4o-mini"
+
+
+def reset_openai_client() -> None:
+    """Clear the cached client. Tests use this; production never needs it."""
+    global _cached_client, _cached_key
+    _cached_client = None
+    _cached_key = None

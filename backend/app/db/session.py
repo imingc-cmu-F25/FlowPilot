@@ -226,6 +226,30 @@ def _drop_legacy_payload_column() -> None:
         conn.execute(text("ALTER TABLE workflows DROP COLUMN payload"))
 
 
+def _ensure_suggestions_pending_questions_column() -> None:
+    """Add suggestions.pending_questions (JSON, default []) if missing.
+
+    Older rows pre-date the clarification flow and stay with empty lists,
+    so accept_suggestion treats them exactly like a complete draft.
+    """
+    engine = get_engine()
+    insp = inspect(engine)
+    if not insp.has_table("suggestions"):
+        return
+    cols = {c["name"] for c in insp.get_columns("suggestions")}
+    if "pending_questions" in cols:
+        return
+    with engine.begin() as conn:
+        conn.execute(
+            text("ALTER TABLE suggestions ADD COLUMN pending_questions JSON")
+        )
+        # Backfill NULLs so the NOT NULL constraint at ORM level holds.
+        conn.execute(
+            text("UPDATE suggestions SET pending_questions = '[]' "
+                 "WHERE pending_questions IS NULL")
+        )
+
+
 def init_db() -> None:
     Base.metadata.create_all(bind=get_engine())
     _ensure_users_emails_column()
@@ -235,6 +259,7 @@ def init_db() -> None:
     _ensure_workflows_max_retries_column()
     _ensure_user_sessions_pkce_column()
     _ensure_cached_events_first_seen_column()
+    _ensure_suggestions_pending_questions_column()
     _drop_legacy_payload_column()
 
 
