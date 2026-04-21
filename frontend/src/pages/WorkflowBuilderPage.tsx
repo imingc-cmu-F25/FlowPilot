@@ -25,7 +25,9 @@ import {
   createSuggestion,
   createWorkflow,
   fetchWorkflow,
+  linkSuggestionToWorkflow,
   updateWorkflow,
+  type SuggestionAnalysis,
   type WorkflowDefinition,
 } from "../lib/api";
 import { getStoredUsername } from "../auth/storage";
@@ -47,6 +49,7 @@ interface ChatMessage {
   content: string;
   workflowDraft?: WorkflowDefinition | null;
   suggestionId?: string;
+  analysis?: SuggestionAnalysis | null;
 }
 
 interface TimeRecurrence {
@@ -103,6 +106,12 @@ export function WorkflowBuilderPage() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [loadingWorkflow, setLoadingWorkflow] = useState(false);
+  // Set when the canvas was populated from an AI suggestion. After the
+  // first successful createWorkflow call we POST to /accept/link so the
+  // suggestion row records its accepted_workflow_id, then clear it.
+  const [pendingSuggestionId, setPendingSuggestionId] = useState<string | null>(
+    null,
+  );
 
   const toRecurrenceConfig = (value: unknown): TimeRecurrence | null => {
     if (!value || typeof value !== "object") return null;
@@ -583,6 +592,18 @@ export function WorkflowBuilderPage() {
           steps,
         });
         savedId = created.workflow_id;
+        // If the canvas was seeded from an AI suggestion, record the link
+        // so /api/suggestions/{id} reports accepted_workflow_id. We swallow
+        // the error: the workflow itself was already saved successfully,
+        // so a missing analytics link shouldn't block navigation.
+        if (pendingSuggestionId) {
+          try {
+            await linkSuggestionToWorkflow(pendingSuggestionId, savedId);
+          } catch (e) {
+            console.warn("Failed to link suggestion to workflow", e);
+          }
+          setPendingSuggestionId(null);
+        }
       }
       // When the user saves the workflow with "enabled" on, promote it from
       // draft to active so TriggerService / scheduler will actually pick it
@@ -630,6 +651,7 @@ export function WorkflowBuilderPage() {
         content: res.content,
         workflowDraft: res.workflow_draft,
         suggestionId: res.id,
+        analysis: res.analysis ?? null,
       };
       setChatMessages((prev) => [...prev, assistantMsg]);
     } catch (e) {
@@ -649,10 +671,14 @@ export function WorkflowBuilderPage() {
     }
   };
 
-  const applyDraftToCanvas = (draft: WorkflowDefinition) => {
+  const applyDraftToCanvas = (
+    draft: WorkflowDefinition,
+    suggestionId?: string,
+  ) => {
     if (draft.name) setWorkflowName(draft.name);
     setNodes(mapWorkflowToNodes(draft));
     setSelectedNode(null);
+    if (suggestionId) setPendingSuggestionId(suggestionId);
   };
 
   return (

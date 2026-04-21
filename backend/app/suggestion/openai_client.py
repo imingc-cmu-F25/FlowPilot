@@ -25,7 +25,14 @@ def get_openai_client():
         return None
     kwargs: dict = {"api_key": settings.openai_api_key}
     if settings.openai_base_url:
-        kwargs["base_url"] = settings.openai_base_url
+        # The SDK appends `/chat/completions` itself, so `base_url` must be
+        # the v1 root. Tolerate ops mistakenly including the suffix (as some
+        # provider docs show it) by stripping it here — otherwise Groq sees
+        # `.../chat/completions/chat/completions` and returns 404.
+        base = settings.openai_base_url.rstrip("/")
+        if base.endswith("/chat/completions"):
+            base = base[: -len("/chat/completions")]
+        kwargs["base_url"] = base
     _cached_key = settings.openai_api_key
     _cached_client = AsyncOpenAI(**kwargs)
     return _cached_client

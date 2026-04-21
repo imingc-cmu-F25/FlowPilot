@@ -149,6 +149,45 @@ def test_rule_based_no_match_returns_none_draft():
     assert result.workflow_draft is None
 
 
+def test_rule_based_matches_daily_schedule_email():
+    strategy = RuleBasedStrategy()
+    result = asyncio.run(
+        strategy.generate_suggestion(
+            UserInput(raw_text="every morning email me my schedule to me@acme.com")
+        )
+    )
+    assert result.workflow_draft is not None
+    draft = result.workflow_draft
+    assert draft["trigger"]["type"] == "time"
+    assert draft["trigger"]["recurrence"]["frequency"] == "daily"
+    assert [s["action_type"] for s in draft["steps"]] == [
+        "calendar_list_upcoming",
+        "send_email",
+    ]
+    assert draft["steps"][0]["window_hours"] == 24
+    assert draft["steps"][1]["to_template"] == "me@acme.com"
+
+
+def test_rule_based_matches_calendar_event_to_email():
+    strategy = RuleBasedStrategy()
+    result = asyncio.run(
+        strategy.generate_suggestion(
+            UserInput(
+                raw_text=(
+                    "when a calendar event titled \"1:1\" shows up,"
+                    " email me at me@acme.com"
+                )
+            )
+        )
+    )
+    assert result.workflow_draft is not None
+    draft = result.workflow_draft
+    assert draft["trigger"]["type"] == "calendar_event"
+    assert draft["trigger"]["title_contains"] == "1:1"
+    assert draft["steps"][0]["action_type"] == "send_email"
+    assert draft["steps"][0]["to_template"] == "me@acme.com"
+
+
 # ---------- TemplateStrategy ----------
 
 
@@ -265,6 +304,36 @@ def test_template_no_match_returns_none():
     assert result.workflow_draft is None
 
 
+def test_rule_based_matches_delayed_email_seconds():
+    strategy = RuleBasedStrategy()
+    result = asyncio.run(
+        strategy.generate_suggestion(
+            UserInput(raw_text="send email to yianchen189@gmail.com after 30 seconds")
+        )
+    )
+    assert result.workflow_draft is not None
+    draft = result.workflow_draft
+    assert draft["name"] == "Send Email After 30 Seconds"
+    assert draft["trigger"]["type"] == "time"
+    assert draft["trigger"]["recurrence"] is None
+    assert draft["steps"][0]["action_type"] == "send_email"
+    assert draft["steps"][0]["to_template"] == "yianchen189@gmail.com"
+
+
+def test_template_picks_delayed_email_seconds():
+    strategy = TemplateStrategy()
+    result = asyncio.run(
+        strategy.generate_suggestion(
+            UserInput(raw_text="send email to user@acme.com after 45 sec")
+        )
+    )
+    assert result.workflow_draft is not None
+    draft = result.workflow_draft
+    assert draft["name"] == "Send Email After 45 Seconds"
+    assert draft["trigger"]["recurrence"] is None
+    assert draft["steps"][0]["to_template"] == "user@acme.com"
+
+
 # ---------- LLMStrategy (no API key = graceful fallback) ----------
 
 
@@ -281,6 +350,59 @@ def test_llm_strategy_without_api_key_returns_no_draft(monkeypatch):
     assert result.strategy_used == "llm"
     assert result.workflow_draft is None
     assert "OPENAI_API_KEY" in result.content
+
+
+def test_llm_strategy_sanitizes_no_tool_call_response(monkeypatch):
+    """Some providers (Groq/Llama) ignore tool_choice and return a bare
+    chat message with misleading 'fix the recurrence error' text. We must
+    not surface that content to the user — return a neutral fallback."""
+    import app.suggestion.openai_client as oc
+
+    # Stub OpenAI response: content filled, tool_calls None
+    class _Msg:
+        tool_calls = None
+        content = (
+            "LLM call failed: To fix the error, ensure the recurrence "
+            "parameter in your trigger is an object, not null."
+        )
+
+    class _Choice:
+        message = _Msg()
+
+    class _Resp:
+        choices = [_Choice()]
+
+    class _Completions:
+        async def create(self, **_kwargs):
+            return _Resp()
+
+    class _Chat:
+        completions = _Completions()
+
+    class _Client:
+        chat = _Chat()
+
+    monkeypatch.setattr(
+        "app.suggestion.strategies.llm.get_openai_client", lambda: _Client()
+    )
+
+    strategy = LLMStrategy()
+    result = asyncio.run(
+        strategy.generate_suggestion(
+            UserInput(raw_text="send email to yianchen189@gmail.com after 30 seconds")
+        )
+    )
+    assert result.strategy_used == "llm"
+    assert result.workflow_draft is None
+    # The scolding text must be stripped.
+    assert "recurrence" not in result.content.lower()
+    assert "error" not in result.content.lower()
+    # And a helpful nudge must remain.
+    assert "rephras" in result.content.lower()
+
+    # Clean up
+    oc._cached_client = None
+    oc._cached_key = None
 
 
 # ---------- _validate_and_fix ----------
