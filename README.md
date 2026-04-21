@@ -1,3 +1,9 @@
+# UPDATE NOTE
+Sigrid is now enabled for this repo.
+You have new GitHub Actions workflow files.
+You will receive a Sigrid invitation shortly - accept it and review the architecture analysis of your repo as part of the project documentation assignment. There's no need to improve the codebase or architecture when working on the implementation. 
+Visit Sigrid at https://sigrid-says.com/cmusvfse
+
 # FlowPilot
 
 FlowPilot is a lightweight workflow automation platform for students and individual knowledge workers.  
